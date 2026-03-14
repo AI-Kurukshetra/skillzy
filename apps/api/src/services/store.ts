@@ -253,6 +253,7 @@ class FileStoreBackend implements StoreBackend {
 
 class SupabaseStoreBackend implements StoreBackend {
   private client: SupabaseClient;
+  private inMemoryFallback: StoreState | null = null;
 
   constructor(url: string, serviceRoleKey: string) {
     this.client = createClient(url, serviceRoleKey, {
@@ -264,34 +265,53 @@ class SupabaseStoreBackend implements StoreBackend {
   }
 
   async loadState(): Promise<StoreState> {
-    const { data, error } = await this.client
-      .from("skillzy_app_state")
-      .select("state")
-      .eq("id", appStateId)
-      .maybeSingle<{ state: StoreState }>();
-
-    if (error) {
-      throw error;
+    if (this.inMemoryFallback) {
+      return this.inMemoryFallback;
     }
 
-    if (!data) {
+    try {
+      const { data, error } = await this.client
+        .from("skillzy_app_state")
+        .select("state")
+        .eq("id", appStateId)
+        .maybeSingle<{ state: StoreState }>();
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data?.state) {
+        const seeded = createSeedState();
+        await this.saveState(seeded);
+        return seeded;
+      }
+
+      return data.state;
+    } catch {
       const seeded = createSeedState();
-      await this.saveState(seeded);
+      this.inMemoryFallback = seeded;
       return seeded;
     }
-
-    return data.state;
   }
 
   async saveState(state: StoreState): Promise<void> {
-    const { error } = await this.client.from("skillzy_app_state").upsert({
-      id: appStateId,
-      state,
-      updated_at: now()
-    });
+    if (this.inMemoryFallback) {
+      this.inMemoryFallback = state;
+      return;
+    }
 
-    if (error) {
-      throw error;
+    try {
+      const { error } = await this.client.from("skillzy_app_state").upsert({
+        id: appStateId,
+        state,
+        updated_at: now()
+      });
+
+      if (error) {
+        throw error;
+      }
+    } catch {
+      this.inMemoryFallback = state;
     }
   }
 }
