@@ -225,8 +225,12 @@ export function StudentSession({
   }, [activeQuestion?.id, hasAnsweredCurrentQuestion]);
 
   useEffect(() => {
-    questionStartedAtRef.current = activeQuestion ? Date.now() : null;
-  }, [activeQuestion?.id]);
+    if (!activeQuestion || snapshot.session.status !== "live") {
+      questionStartedAtRef.current = null;
+      return;
+    }
+    questionStartedAtRef.current = Date.now();
+  }, [activeQuestion?.id, snapshot.session.status]);
 
   useEffect(() => {
     if (!timedSession || !activeQuestion || snapshot.session.status !== "live") {
@@ -371,6 +375,12 @@ export function StudentSession({
     timedSession && activeQuestion && timeRemaining !== null
       ? Math.max(0, Math.min(100, (timeRemaining / getQuestionDuration(activeQuestion)) * 100))
       : null;
+  const quizStarted = snapshot.session.status === "live" || snapshot.session.status === "ended";
+  const participantFinishedTimedQuiz =
+    timedSession &&
+    quizStarted &&
+    !snapshot.session.revealResults &&
+    currentQuestionIndex >= orderedQuestions.length;
 
   return (
     <div className="flex min-h-[calc(100vh-8rem)] flex-col gap-5">
@@ -437,6 +447,27 @@ export function StudentSession({
           </div>
           </div>
         </CreamCard>
+      ) : participantFinishedTimedQuiz ? (
+        <CreamCard className="flex flex-1 items-center justify-center overflow-hidden px-6 py-8">
+          <div className="w-full max-w-xl text-center">
+            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-[#ecfff1] text-4xl shadow-inner">
+              ✓
+            </div>
+            <p className="mt-6 text-sm font-semibold uppercase tracking-[0.26em] text-skillzy-soft">
+              Quiz completed
+            </p>
+            <h2 className="mt-3 text-3xl font-semibold leading-tight text-skillzy-ink">
+              Hooray, you completed the quiz.
+            </h2>
+            <p className="mt-4 text-base leading-7 text-skillzy-soft">
+              Please wait for the quiz to end. Your results and the leaderboard will appear here as
+              soon as the teacher reveals them.
+            </p>
+            <div className="mt-8 rounded-[1.5rem] bg-white/70 px-5 py-4 text-sm text-skillzy-soft">
+              You can stay on this screen. Skillzy will update everything automatically.
+            </div>
+          </div>
+        </CreamCard>
       ) : activeQuestion ? (
         <CreamCard className="flex flex-1 flex-col overflow-hidden">
           <div className="shrink-0">
@@ -498,12 +529,28 @@ export function StudentSession({
           </div>
         </CreamCard>
       ) : (
-        <CreamCard className="flex flex-1 items-center">
-          <p className="text-sm text-skillzy-soft">
-            {snapshot.session.status === "ended"
-              ? "This quiz has ended."
-              : "Waiting for your teacher to start the timed quiz."}
-          </p>
+        <CreamCard className="flex flex-1 items-center justify-center overflow-hidden px-6 py-8">
+          <div className="w-full max-w-xl text-center">
+            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-white/80 text-4xl shadow-inner">
+              ⏳
+            </div>
+            <p className="mt-6 text-sm font-semibold uppercase tracking-[0.26em] text-skillzy-soft">
+              Waiting room
+            </p>
+            <h2 className="mt-3 text-3xl font-semibold leading-tight text-skillzy-ink">
+              {snapshot.session.status === "ended" ? "This quiz has ended." : "Waiting for quiz to start"}
+            </h2>
+            <p className="mt-4 text-base leading-7 text-skillzy-soft">
+              {snapshot.session.status === "ended"
+                ? "The teacher has already ended this session."
+                : "Stay here while your teacher gets everyone ready. The first question will appear automatically."}
+            </p>
+            {!quizStarted ? (
+              <div className="mt-8 rounded-[1.5rem] bg-white/70 px-5 py-4 text-sm text-skillzy-soft">
+                Your join is confirmed. No refresh needed.
+              </div>
+            ) : null}
+          </div>
         </CreamCard>
       )}
 
