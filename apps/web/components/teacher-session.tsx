@@ -168,6 +168,28 @@ export function TeacherSession({ initialSnapshot }: { initialSnapshot: SessionSn
       .sort((left, right) => right.correctCount - left.correctCount || left.name.localeCompare(right.name));
   }, [snapshot.participants, snapshot.questions, snapshot.responses]);
 
+  const participantResults = useMemo(
+    () =>
+      snapshot.participants.map((participant) => {
+        const participantResponses = snapshot.responses.filter((response) => response.participantId === participant.id);
+        return {
+          participantId: participant.id,
+          name: participant.displayName,
+          results: snapshot.questions.map((question) => {
+            const response = participantResponses.find((item) => item.questionId === question.id);
+            return {
+              questionId: question.id,
+              prompt: question.prompt,
+              responseLabel: formatResponseLabel(question, response),
+              isCorrect: response ? isResponseCorrect(question, response) : false,
+              hasResponse: Boolean(response)
+            };
+          })
+        };
+      }),
+    [snapshot.participants, snapshot.questions, snapshot.responses]
+  );
+
   function sendControl(
     action: "advance-slide" | "set-question" | "toggle-results",
     payload?: Record<string, unknown>
@@ -338,6 +360,44 @@ export function TeacherSession({ initialSnapshot }: { initialSnapshot: SessionSn
                 ))}
               </div>
             </div>
+
+            <div className="mt-5">
+              <h4 className="text-lg font-semibold">All student results</h4>
+              <div className="mt-3 space-y-3">
+                {participantResults.map((participant) => (
+                  <div key={participant.participantId} className="rounded-[1.5rem] bg-white/70 p-4">
+                    <p className="font-semibold">{participant.name}</p>
+                    <div className="mt-3 space-y-2">
+                      {participant.results.map((result, index) => (
+                        <div
+                          key={`${participant.participantId}-${result.questionId}`}
+                          className="flex flex-wrap items-center justify-between gap-3 rounded-[1rem] bg-white px-3 py-3 text-sm"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs uppercase tracking-[0.14em] text-skillzy-soft">
+                              Question {index + 1}
+                            </p>
+                            <p className="truncate font-medium">{result.prompt}</p>
+                          </div>
+                          <p className="max-w-[15rem] truncate text-skillzy-soft">{result.responseLabel}</p>
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] ${
+                              !result.hasResponse
+                                ? "bg-[#f4f0ff] text-[#6f6787]"
+                                : result.isCorrect
+                                  ? "bg-[#e6fbf0] text-[#249461]"
+                                  : "bg-[#fff1ee] text-[#c45538]"
+                            }`}
+                          >
+                            {!result.hasResponse ? "No answer" : result.isCorrect ? "Correct" : "Incorrect"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </CreamCard>
         ) : null}
 
@@ -352,6 +412,47 @@ export function TeacherSession({ initialSnapshot }: { initialSnapshot: SessionSn
       </section>
     </div>
   );
+}
+
+function formatResponseLabel(
+  question: Question,
+  response: SessionSnapshot["responses"][number] | undefined
+) {
+  if (!response) return "No answer submitted";
+
+  if ((question.type === "multiple-choice" || question.type === "mcq") && (response.type === "multiple-choice" || response.type === "mcq")) {
+    return response.selectedOptionIndexes
+      .map((index) => question.options[index])
+      .filter(Boolean)
+      .map((option) => getChoiceOptionLabel(option as string | { id: string; text: string; isCorrect?: boolean }))
+      .join(", ");
+  }
+
+  if (response.type === "text") {
+    return response.text;
+  }
+
+  if (response.type === "drawing") {
+    return "Drawing submitted";
+  }
+
+  if (response.type === "rating-scale" || response.type === "rating") {
+    return `Rating ${response.rating}`;
+  }
+
+  if (response.type === "image-hotspot") {
+    return `Point ${response.point.x}, ${response.point.y}`;
+  }
+
+  if (response.type === "drag-rank") {
+    return response.orderedItems.join(" -> ");
+  }
+
+  if (response.type === "true_false") {
+    return response.selectedId;
+  }
+
+  return "Response submitted";
 }
 
 function Metric({ label, value }: { label: string; value: string | number }) {
