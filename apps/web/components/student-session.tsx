@@ -1,31 +1,12 @@
 "use client";
 
-import type { Question, SessionSnapshot, SubmitResponseInput } from "@skillzy/types";
-import { useEffect, useMemo, useRef, useState } from "react";
+import type { Question, SessionSnapshot } from "@skillzy/types";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { socket } from "../lib/socket";
 import { CreamCard } from "./shell";
 
 const SESSION_STATE_EVENT = "session:state";
-const DEFAULT_TIMER_DURATION = 45;
-const AUTO_ADVANCE_DELAY_MS = 1500;
-
-type TimedOutcomeStatus = "correct" | "wrong" | "skipped";
-
-type TimedQuestionResult = {
-  questionId: string;
-  prompt: string;
-  status: TimedOutcomeStatus;
-  score: number;
-  responseLabel: string;
-  correctAnswerLabel: string | null;
-};
-
-type TimedFeedback = {
-  questionId: string;
-  status: TimedOutcomeStatus;
-  message: string;
-};
 
 function drawPlaceholder() {
   return "M10 10 L90 90";
@@ -111,98 +92,31 @@ function isResponseCorrect(question: Question, response: SessionSnapshot["respon
 }
 
 function getQuestionDuration(question: Question) {
-  return question.timer?.durationSeconds ?? question.timeLimitS ?? DEFAULT_TIMER_DURATION;
-}
-
-function questionHasTimer(question: Question) {
-  return Boolean(question.timer?.enabled);
+  return question.timer?.durationSeconds ?? question.timeLimitS ?? 45;
 }
 
 function formatQuestionType(question: Question) {
   return question.type.replace(/[-_]/g, " ");
 }
 
-function formatTimedResponseLabel(question: Question, payload: SubmitResponseInput["payload"]) {
-  if (question.type === "multiple-choice" || question.type === "mcq") {
-    return (payload.selectedOptionIndexes ?? [])
+function formatResponseLabel(question: Question, response: SessionSnapshot["responses"][number] | undefined) {
+  if (!response) return "Timed out";
+
+  if ((question.type === "multiple-choice" || question.type === "mcq") && (response.type === "multiple-choice" || response.type === "mcq")) {
+    return response.selectedOptionIndexes
       .map((index) => question.options[index])
       .filter(Boolean)
       .map((option) => getChoiceOptionLabel(option as string | { id: string; text: string; isCorrect?: boolean }))
       .join(", ");
   }
 
-  if (question.type === "text") {
-    return payload.text?.trim() || "Text response submitted";
-  }
-
-  if (question.type === "drawing") {
-    return "Drawing submitted";
-  }
-
-  if (question.type === "rating-scale" || question.type === "rating") {
-    return `Rating ${payload.rating ?? 0}`;
-  }
-
-  if (question.type === "image-hotspot") {
-    return payload.point ? `Point ${payload.point.x}, ${payload.point.y}` : "Hotspot selected";
-  }
-
-  if (question.type === "drag-rank") {
-    return payload.orderedItems?.join(" -> ") ?? "Order submitted";
-  }
-
-  if (question.type === "true_false") {
-    return payload.selectedId ?? "Selection submitted";
-  }
-
+  if (response.type === "text") return response.text;
+  if (response.type === "drawing") return "Drawing submitted";
+  if (response.type === "rating-scale" || response.type === "rating") return `Rating ${response.rating}`;
+  if (response.type === "image-hotspot") return `Point ${response.point.x}, ${response.point.y}`;
+  if (response.type === "drag-rank") return response.orderedItems.join(" -> ");
+  if (response.type === "true_false") return response.selectedId;
   return "Response submitted";
-}
-
-function evaluateTimedQuestion(
-  question: Question,
-  payload: SubmitResponseInput["payload"]
-): TimedQuestionResult {
-  const correctAnswerLabel = getCorrectAnswerLabel(question);
-  const responseLabel = formatTimedResponseLabel(question, payload);
-  let isCorrect = false;
-
-  if (question.type === "multiple-choice" || question.type === "mcq") {
-    isCorrect = areNumberSetsEqual(payload.selectedOptionIndexes ?? [], question.correctOptionIndexes ?? []);
-  } else if (question.type === "rating-scale" || question.type === "rating") {
-    isCorrect = question.correctRating !== undefined && payload.rating === question.correctRating;
-  } else if (question.type === "drag-rank") {
-    isCorrect = JSON.stringify(payload.orderedItems ?? []) === JSON.stringify(question.correctOrder ?? []);
-  } else if (question.type === "true_false") {
-    isCorrect = question.correctId !== undefined && payload.selectedId === question.correctId;
-  }
-
-  return {
-    questionId: question.id,
-    prompt: question.prompt,
-    status: isCorrect ? "correct" : "wrong",
-    score: isCorrect ? 1 : -0.25,
-    responseLabel,
-    correctAnswerLabel
-  };
-}
-
-function buildSkippedQuestionResult(question: Question): TimedQuestionResult {
-  return {
-    questionId: question.id,
-    prompt: question.prompt,
-    status: "skipped",
-    score: 0,
-    responseLabel: "Timed out",
-    correctAnswerLabel: getCorrectAnswerLabel(question)
-  };
-}
-
-function buildTimedFeedback(status: TimedOutcomeStatus): TimedFeedback {
-  return {
-    questionId: "",
-    status,
-    message: status === "correct" ? "Correct!" : status === "wrong" ? "Wrong" : "Time's up!"
-  };
 }
 
 export function StudentSession({
@@ -223,42 +137,34 @@ export function StudentSession({
   const [hotspotAnswer, setHotspotAnswer] = useState({ x: 50, y: 50 });
   const [rankAnswer, setRankAnswer] = useState<string[]>([]);
   const [submitted, setSubmitted] = useState(false);
-  const [feedback, setFeedback] = useState<TimedFeedback | null>(null);
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [timedResults, setTimedResults] = useState<Record<string, TimedQuestionResult>>({});
-  const [burstKey, setBurstKey] = useState(0);
-  const autoAdvanceRef = useRef<number | null>(null);
-  const timeoutHandledRef = useRef(false);
 
-  const orderedQuestions = useMemo(() => {
-    return snapshot.questions
-      .slice()
-      .sort((left, right) => {
-        const leftSlide = snapshot.slides.find((slide) => slide.id === left.slideId);
-        const rightSlide = snapshot.slides.find((slide) => slide.id === right.slideId);
-        const leftIndex = leftSlide?.index ?? left.slideIndex ?? 0;
-        const rightIndex = rightSlide?.index ?? right.slideIndex ?? 0;
-        if (leftIndex !== rightIndex) return leftIndex - rightIndex;
-        return (left.orderIndex ?? 0) - (right.orderIndex ?? 0);
-      });
-  }, [snapshot.questions, snapshot.slides]);
-
-  const teacherDrivenQuestion = snapshot.questions.find(
-    (question) => question.id === snapshot.session.activeQuestionId
-  );
-  const timedQuizMode = orderedQuestions.length > 0 && orderedQuestions.every(questionHasTimer);
-  const activeQuestion = timedQuizMode
-    ? orderedQuestions[currentQuestionIndex] ?? null
-    : teacherDrivenQuestion ?? null;
-  const currentSlide = activeQuestion
-    ? snapshot.slides.find((slide) => slide.id === activeQuestion.slideId) ??
-      snapshot.slides[snapshot.session.currentSlideIndex]
-    : snapshot.slides[snapshot.session.currentSlideIndex];
   const participantId =
     typeof window !== "undefined" ? localStorage.getItem("skillzyParticipantId") ?? "" : "";
-  const quizComplete = timedQuizMode && currentQuestionIndex >= orderedQuestions.length;
-  const canShowQuestion = !timedQuizMode || snapshot.session.status !== "draft";
+  const orderedQuestions = useMemo(
+    () =>
+      snapshot.questions
+        .slice()
+        .sort((left, right) => {
+          const leftSlide = snapshot.slides.find((slide) => slide.id === left.slideId);
+          const rightSlide = snapshot.slides.find((slide) => slide.id === right.slideId);
+          const leftIndex = leftSlide?.index ?? left.slideIndex ?? 0;
+          const rightIndex = rightSlide?.index ?? right.slideIndex ?? 0;
+          if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+          return (left.orderIndex ?? 0) - (right.orderIndex ?? 0);
+        }),
+    [snapshot.questions, snapshot.slides]
+  );
+  const participant = snapshot.participants.find((item) => item.id === participantId);
+  const currentQuestionIndex = participant?.currentQuestionIndex ?? 0;
+  const activeQuestion = orderedQuestions[currentQuestionIndex] ?? null;
+  const currentSlide = activeQuestion
+    ? snapshot.slides.find((slide) => slide.id === activeQuestion.slideId) ?? snapshot.slides[snapshot.session.currentSlideIndex]
+    : snapshot.slides[snapshot.session.currentSlideIndex];
+  const participantResponses = snapshot.responses.filter((response) => response.participantId === participantId);
+  const timedSession =
+    Boolean(snapshot.session.timerMode) ||
+    (orderedQuestions.length > 0 && orderedQuestions.every((question) => Boolean(question.timer?.enabled)));
 
   useEffect(() => {
     socket.connect();
@@ -267,9 +173,7 @@ export function StudentSession({
 
     socket.emit("session:subscribe", sessionId);
     socket.on(SESSION_STATE_EVENT, (nextSnapshot: SessionSnapshot | null) => {
-      if (nextSnapshot) {
-        setSnapshot(nextSnapshot);
-      }
+      if (nextSnapshot) setSnapshot(nextSnapshot);
     });
     socket.on("connect", handleConnect);
     socket.on("disconnect", handleDisconnect);
@@ -282,32 +186,20 @@ export function StudentSession({
   }, [sessionId]);
 
   useEffect(() => {
-    return () => {
-      if (autoAdvanceRef.current !== null) {
-        window.clearTimeout(autoAdvanceRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    timeoutHandledRef.current = false;
-    setSubmitted(false);
-    setFeedback(null);
+    setSubmitted(
+      Boolean(activeQuestion && participantResponses.some((response) => response.questionId === activeQuestion.id))
+    );
     setTextAnswer("");
     setMcqAnswer([]);
     setDrawingAnswer(drawPlaceholder());
     setRatingAnswer(0);
     setHotspotAnswer({ x: 50, y: 50 });
     setRankAnswer(activeQuestion?.type === "drag-rank" ? [...activeQuestion.items] : []);
-    setTimeRemaining(activeQuestion && questionHasTimer(activeQuestion) ? getQuestionDuration(activeQuestion) : null);
-  }, [activeQuestion?.id]);
+  }, [activeQuestion?.id, participantResponses]);
 
   useEffect(() => {
-    if (!timedQuizMode || !activeQuestion || !questionHasTimer(activeQuestion) || submitted || feedback) {
-      return;
-    }
-
-    if (snapshot.session.status === "draft" || snapshot.session.status === "ended") {
+    if (!timedSession || !activeQuestion || snapshot.session.status !== "live") {
+      setTimeRemaining(null);
       return;
     }
 
@@ -315,34 +207,23 @@ export function StudentSession({
     const startedAt = Date.now();
 
     const tick = () => {
-      const elapsedSeconds = (Date.now() - startedAt) / 1000;
-      const remainingSeconds = Math.max(0, duration - elapsedSeconds);
-      setTimeRemaining(remainingSeconds);
-
-      if (remainingSeconds <= 0 && !timeoutHandledRef.current) {
-        timeoutHandledRef.current = true;
-        const skippedResult = buildSkippedQuestionResult(activeQuestion);
-        setTimedResults((current) => ({
-          ...current,
-          [activeQuestion.id]: skippedResult
-        }));
-        setSubmitted(true);
-        setFeedback({
-          ...buildTimedFeedback("skipped"),
-          questionId: activeQuestion.id
-        });
-        autoAdvanceRef.current = window.setTimeout(() => {
-          setCurrentQuestionIndex((index) => index + 1);
-        }, AUTO_ADVANCE_DELAY_MS);
+      const remaining = duration - (Date.now() - startedAt) / 1000;
+      setTimeRemaining(Math.max(0, remaining));
+      if (remaining <= 0 && !submitted) {
+        void advanceToNextQuestion(currentQuestionIndex + 1);
       }
     };
 
     tick();
     const interval = window.setInterval(tick, 100);
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [activeQuestion, feedback, snapshot.session.status, submitted, timedQuizMode]);
+    return () => window.clearInterval(interval);
+  }, [activeQuestion?.id, currentQuestionIndex, snapshot.session.status, submitted, timedSession]);
+
+  async function advanceToNextQuestion(nextIndex: number) {
+    if (!participantId) return;
+    const nextSnapshot = await api.updateParticipantProgress(sessionId, participantId, nextIndex);
+    setSnapshot(nextSnapshot);
+  }
 
   const analytics = useMemo(() => {
     if (!activeQuestion || !snapshot.session.revealResults) return null;
@@ -374,14 +255,14 @@ export function StudentSession({
     if (!snapshot.session.revealResults) return [];
     const gradableQuestions = snapshot.questions.filter((question) => Boolean(getCorrectAnswerLabel(question)));
     return snapshot.participants
-      .map((participant) => {
-        const participantResponses = snapshot.responses.filter((response) => response.participantId === participant.id);
+      .map((participantEntry) => {
+        const responses = snapshot.responses.filter((response) => response.participantId === participantEntry.id);
         const correctCount = gradableQuestions.filter((question) =>
-          participantResponses.some((response) => isResponseCorrect(question, response))
+          responses.some((response) => isResponseCorrect(question, response))
         ).length;
         return {
-          participantId: participant.id,
-          name: participant.displayName,
+          participantId: participantEntry.id,
+          name: participantEntry.displayName,
           correctCount,
           totalQuestions: gradableQuestions.length
         };
@@ -389,56 +270,48 @@ export function StudentSession({
       .sort((left, right) => right.correctCount - left.correctCount || left.name.localeCompare(right.name));
   }, [snapshot.participants, snapshot.questions, snapshot.responses, snapshot.session.revealResults]);
 
-  const timedSummary = useMemo(() => {
-    if (!timedQuizMode || !quizComplete) return null;
-    const results = orderedQuestions.map((question) => timedResults[question.id] ?? buildSkippedQuestionResult(question));
-    const correct = results.filter((result) => result.status === "correct").length;
-    const wrong = results.filter((result) => result.status === "wrong").length;
-    const skipped = results.filter((result) => result.status === "skipped").length;
-    const attempted = correct + wrong;
-    const score = results.reduce((total, result) => total + result.score, 0);
+  const finalSummary = useMemo(() => {
+    if (!snapshot.session.revealResults || snapshot.session.status !== "ended") return null;
+
+    const gradableQuestions = orderedQuestions.filter((question) => Boolean(getCorrectAnswerLabel(question)));
+    const results = gradableQuestions.map((question) => {
+      const response = participantResponses.find((item) => item.questionId === question.id);
+      const status = !response ? "skipped" : isResponseCorrect(question, response) ? "correct" : "wrong";
+      return {
+        questionId: question.id,
+        prompt: question.prompt,
+        status,
+        score: status === "correct" ? 1 : status === "wrong" ? -0.25 : 0,
+        responseLabel: formatResponseLabel(question, response),
+        correctAnswerLabel: getCorrectAnswerLabel(question)
+      };
+    });
+
     return {
-      score,
-      totalQuestions: orderedQuestions.length,
-      correct,
-      wrong,
-      skipped,
-      attempted,
+      score: results.reduce((total, result) => total + result.score, 0),
+      totalQuestions: gradableQuestions.length,
+      correct: results.filter((result) => result.status === "correct").length,
+      wrong: results.filter((result) => result.status === "wrong").length,
+      skipped: results.filter((result) => result.status === "skipped").length,
       results
     };
-  }, [orderedQuestions, quizComplete, timedQuizMode, timedResults]);
-
-  function buildPayload(question: Question): SubmitResponseInput["payload"] {
-    if (isChoiceQuestion(question)) {
-      return { selectedOptionIndexes: mcqAnswer };
-    }
-
-    if (question.type === "text") {
-      return { text: textAnswer };
-    }
-
-    if (question.type === "drawing") {
-      return { strokes: drawingAnswer };
-    }
-
-    if (isRatingQuestion(question)) {
-      return { rating: ratingAnswer };
-    }
-
-    if (question.type === "image-hotspot") {
-      return { point: hotspotAnswer };
-    }
-
-    if (question.type === "drag-rank") {
-      return { orderedItems: rankAnswer };
-    }
-
-    return {};
-  }
+  }, [orderedQuestions, participantResponses, snapshot.session.revealResults, snapshot.session.status]);
 
   async function submit() {
     if (!activeQuestion || !participantId || submitted) return;
-    const payload = buildPayload(activeQuestion);
+
+    const payload =
+      isChoiceQuestion(activeQuestion)
+        ? { selectedOptionIndexes: mcqAnswer }
+        : activeQuestion.type === "text"
+          ? { text: textAnswer }
+          : activeQuestion.type === "drawing"
+            ? { strokes: drawingAnswer }
+            : isRatingQuestion(activeQuestion)
+              ? { rating: ratingAnswer }
+              : activeQuestion.type === "image-hotspot"
+                ? { point: hotspotAnswer }
+                : { orderedItems: rankAnswer };
 
     await api.submitResponse({
       sessionId,
@@ -455,34 +328,12 @@ export function StudentSession({
       type: activeQuestion.type,
       payload
     });
-
     setSubmitted(true);
-
-    if (!timedQuizMode) {
-      return;
-    }
-
-    const result = evaluateTimedQuestion(activeQuestion, payload);
-    setTimedResults((current) => ({
-      ...current,
-      [activeQuestion.id]: result
-    }));
-    setFeedback({
-      ...buildTimedFeedback(result.status),
-      questionId: activeQuestion.id
-    });
-
-    if (result.status === "correct") {
-      setBurstKey((value) => value + 1);
-    }
-
-    autoAdvanceRef.current = window.setTimeout(() => {
-      setCurrentQuestionIndex((index) => index + 1);
-    }, AUTO_ADVANCE_DELAY_MS);
+    await advanceToNextQuestion(currentQuestionIndex + 1);
   }
 
   const progressPercent =
-    timedQuizMode && activeQuestion && questionHasTimer(activeQuestion) && timeRemaining !== null
+    timedSession && activeQuestion && timeRemaining !== null
       ? Math.max(0, Math.min(100, (timeRemaining / getQuestionDuration(activeQuestion)) * 100))
       : null;
 
@@ -496,14 +347,15 @@ export function StudentSession({
         </div>
       ) : null}
 
-      <CreamCard className="px-1 pb-1 pt-1">
+      <CreamCard className="ticket-notch px-5 pb-5 pt-8">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
+            <p className="text-xs uppercase tracking-[0.22em] text-skillzy-soft">Live class</p>
             <h1 className="mt-1 line-clamp-2 text-xl font-semibold leading-tight">{snapshot.deck.title}</h1>
           </div>
           <span className="shrink-0 rounded-full bg-white/70 px-3 py-1 text-xs font-semibold text-skillzy-soft">
-            {timedQuizMode && !quizComplete && activeQuestion
-              ? `Question ${currentQuestionIndex + 1}/${orderedQuestions.length}`
+            {timedSession && snapshot.session.totalTimedQuestions
+              ? `Question ${Math.min(currentQuestionIndex + 1, snapshot.session.totalTimedQuestions)}/${snapshot.session.totalTimedQuestions}`
               : `Slide ${snapshot.session.currentSlideIndex + 1}`}
           </span>
         </div>
@@ -512,27 +364,25 @@ export function StudentSession({
         ) : null}
       </CreamCard>
 
-      {timedSummary ? (
+      {finalSummary ? (
         <CreamCard>
           <p className="text-sm uppercase tracking-[0.25em] text-skillzy-soft">Quiz summary</p>
-          <h2 className="mt-2 text-2xl font-semibold">You completed the timed quiz</h2>
+          <h2 className="mt-2 text-2xl font-semibold">Timed quiz complete</h2>
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <div className="rounded-[1.5rem] bg-white/70 p-4">
               <p className="text-sm text-skillzy-soft">Total score</p>
               <p className="mt-1 text-3xl font-semibold">
-                {timedSummary.score.toFixed(2)} / {timedSummary.totalQuestions}
+                {finalSummary.score.toFixed(2)} / {finalSummary.totalQuestions}
               </p>
             </div>
             <div className="rounded-[1.5rem] bg-white/70 p-4">
-              <p className="text-sm text-skillzy-soft">Attempts</p>
-              <p className="mt-1 text-lg font-semibold">
-                Correct: {timedSummary.correct} | Wrong: {timedSummary.wrong} | Skipped: {timedSummary.skipped}
+              <p className="text-sm text-skillzy-soft">
+                Correct: {finalSummary.correct} | Wrong: {finalSummary.wrong} | Skipped: {finalSummary.skipped}
               </p>
-              <p className="mt-2 text-sm text-skillzy-soft">Attempted: {timedSummary.attempted}</p>
             </div>
           </div>
           <div className="mt-5 space-y-3">
-            {timedSummary.results.map((result, index) => (
+            {finalSummary.results.map((result, index) => (
               <div key={result.questionId} className="rounded-[1.5rem] bg-white/70 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
@@ -551,102 +401,62 @@ export function StudentSession({
             ))}
           </div>
         </CreamCard>
-      ) : activeQuestion && canShowQuestion ? (
-        <CreamCard className="overflow-hidden">
-          <div className="relative">
-            {feedback?.status === "correct" ? (
-              <div key={burstKey} className="pointer-events-none absolute inset-x-0 top-0 flex justify-center">
-                <div className="quiz-confetti-burst">
-                  {Array.from({ length: 14 }, (_, index) => (
-                    <span key={`${burstKey}-${index}`} className="quiz-confetti-piece" />
-                  ))}
-                </div>
+      ) : activeQuestion ? (
+        <CreamCard>
+          <p className="text-sm uppercase tracking-[0.25em] text-skillzy-soft">
+            {formatQuestionType(activeQuestion)}
+          </p>
+          <h2 className="mt-2 text-2xl font-semibold">{activeQuestion.prompt}</h2>
+          {timedSession && progressPercent !== null ? (
+            <div className="mt-5 rounded-[1.5rem] bg-white/70 p-4">
+              <div className="flex items-center justify-between gap-3 text-sm font-semibold text-skillzy-soft">
+                <span>Time remaining for this question</span>
+                <span>{Math.max(0, Math.ceil(timeRemaining ?? 0))}s</span>
               </div>
-            ) : null}
-            <p className="text-sm uppercase tracking-[0.25em] text-skillzy-soft">{formatQuestionType(activeQuestion)}</p>
-            <h2 className="mt-2 text-2xl font-semibold">{activeQuestion.prompt}</h2>
-
-            {timedQuizMode && questionHasTimer(activeQuestion) && progressPercent !== null ? (
-              <div className="mt-5 rounded-[1.5rem] bg-white/70 p-4">
-                <div className="flex items-center justify-between gap-3 text-sm font-semibold text-skillzy-soft">
-                  <span>Time remaining</span>
-                  <span>{Math.max(0, Math.ceil(timeRemaining ?? 0))}s</span>
-                </div>
-                <div className="mt-3 h-3 overflow-hidden rounded-full bg-black/10">
-                  <div
-                    className="h-full rounded-full bg-[#8b62ff] transition-[width] duration-100"
-                    style={{ width: `${progressPercent}%` }}
-                  />
-                </div>
+              <div className="mt-3 h-3 overflow-hidden rounded-full bg-black/10">
+                <div
+                  className="h-full rounded-full bg-[#8b62ff] transition-[width] duration-100"
+                  style={{ width: `${progressPercent}%` }}
+                />
               </div>
-            ) : null}
+            </div>
+          ) : null}
 
-            <QuestionResponseForm
-              question={activeQuestion}
-              disabled={submitted}
-              textAnswer={textAnswer}
-              setTextAnswer={setTextAnswer}
-              mcqAnswer={mcqAnswer}
-              setMcqAnswer={setMcqAnswer}
-              drawingAnswer={drawingAnswer}
-              setDrawingAnswer={setDrawingAnswer}
-              ratingAnswer={ratingAnswer}
-              setRatingAnswer={setRatingAnswer}
-              hotspotAnswer={hotspotAnswer}
-              setHotspotAnswer={setHotspotAnswer}
-              rankAnswer={rankAnswer}
-              setRankAnswer={setRankAnswer}
-              feedback={feedback}
-            />
-
-            {feedback?.questionId === activeQuestion.id ? (
-              <div
-                className={`mt-5 rounded-[1.5rem] px-4 py-4 text-sm font-semibold ${
-                  feedback.status === "correct"
-                    ? "bg-[#e7f6ec] text-[#235a35]"
-                    : feedback.status === "wrong"
-                      ? "bg-[#fff1ee] text-[#b4432e]"
-                      : "bg-[#eef3ff] text-[#425f9a]"
-                }`}
-              >
-                {feedback.status === "correct"
-                  ? "✓ Correct!"
-                  : feedback.status === "wrong"
-                    ? "✗ Wrong"
-                    : "⏱ Time's up!"}
-              </div>
-            ) : submitted ? (
-              <div className="mt-5 rounded-[1.5rem] bg-[#e7f6ec] p-4 text-sm text-[#235a35]">
-                Response submitted successfully. You can wait for your teacher to move to the next question.
-              </div>
-            ) : null}
-
-            {(snapshot.session.revealResults || feedback?.status === "wrong" || feedback?.status === "skipped") &&
-            activeQuestion ? (
-              <div className="mt-4 rounded-[1.5rem] bg-[#fff6e8] p-4 text-sm text-[#8f6419]">
-                <p className="font-semibold text-[#5f4817]">Correct answer</p>
-                <p className="mt-1">
-                  {getCorrectAnswerLabel(activeQuestion) ??
-                    "Your teacher has revealed the class results for this question."}
-                </p>
-              </div>
-            ) : null}
-
-            <button
-              onClick={submit}
-              disabled={submitted || (isChoiceQuestion(activeQuestion) && mcqAnswer.length === 0)}
-              className="mt-5 w-full rounded-full bg-skillzy-ink px-5 py-4 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {submitted ? "Response submitted" : "Submit response"}
-            </button>
-          </div>
+          <QuestionResponseForm
+            question={activeQuestion}
+            disabled={submitted || snapshot.session.status !== "live"}
+            textAnswer={textAnswer}
+            setTextAnswer={setTextAnswer}
+            mcqAnswer={mcqAnswer}
+            setMcqAnswer={setMcqAnswer}
+            drawingAnswer={drawingAnswer}
+            setDrawingAnswer={setDrawingAnswer}
+            ratingAnswer={ratingAnswer}
+            setRatingAnswer={setRatingAnswer}
+            hotspotAnswer={hotspotAnswer}
+            setHotspotAnswer={setHotspotAnswer}
+            rankAnswer={rankAnswer}
+            setRankAnswer={setRankAnswer}
+          />
+          {submitted ? (
+            <div className="mt-5 rounded-[1.5rem] bg-[#e7f6ec] p-4 text-sm text-[#235a35]">
+              Answer saved. Moving you forward without waiting for the rest of the class.
+            </div>
+          ) : null}
+          <button
+            onClick={submit}
+            disabled={submitted || snapshot.session.status !== "live" || (isChoiceQuestion(activeQuestion) && mcqAnswer.length === 0)}
+            className="mt-5 w-full rounded-full bg-skillzy-ink px-5 py-4 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {submitted ? "Response submitted" : "Submit response"}
+          </button>
         </CreamCard>
       ) : (
         <CreamCard>
           <p className="text-sm text-skillzy-soft">
-            {timedQuizMode && snapshot.session.status === "draft"
-              ? "Waiting for your teacher to start the timed quiz."
-              : "Waiting for your teacher to activate a question."}
+            {snapshot.session.status === "ended"
+              ? "This quiz has ended."
+              : "Waiting for your teacher to start the timed quiz."}
           </p>
         </CreamCard>
       )}
@@ -748,8 +558,7 @@ function QuestionResponseForm({
   hotspotAnswer,
   setHotspotAnswer,
   rankAnswer,
-  setRankAnswer,
-  feedback
+  setRankAnswer
 }: {
   question: Question;
   disabled: boolean;
@@ -765,7 +574,6 @@ function QuestionResponseForm({
   setHotspotAnswer: (value: { x: number; y: number }) => void;
   rankAnswer: string[];
   setRankAnswer: (value: string[]) => void;
-  feedback: TimedFeedback | null;
 }) {
   if (question.type === "multiple-choice" || question.type === "mcq") {
     return (
@@ -774,12 +582,6 @@ function QuestionResponseForm({
           const active = mcqAnswer.includes(index);
           const optionLabel = getChoiceOptionLabel(option);
           const optionKey = typeof option === "string" ? option : option.id;
-          const isCorrectOption = (question.correctOptionIndexes ?? []).includes(index);
-          const showCorrect = Boolean(
-            feedback && (feedback.status === "correct" || feedback.status === "wrong" || feedback.status === "skipped")
-          );
-          const shouldGlowCorrect = showCorrect && isCorrectOption;
-          const shouldShakeWrong = feedback?.status === "wrong" && active && !isCorrectOption;
           return (
             <button
               type="button"
@@ -795,13 +597,7 @@ function QuestionResponseForm({
                 )
               }
               className={`w-full rounded-3xl border px-4 py-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                shouldGlowCorrect
-                  ? "quiz-option-correct border-[#2a9d62] bg-[#e9f8ef] text-[#1b5a36]"
-                  : shouldShakeWrong
-                    ? "quiz-option-wrong border-[#d65d4a] bg-[#fff1ee] text-[#913427]"
-                    : active
-                      ? "border-skillzy-ink bg-skillzy-ink text-white"
-                      : "border-black/10 bg-white/70"
+                active ? "border-skillzy-ink bg-skillzy-ink text-white" : "border-black/10 bg-white/70"
               }`}
             >
               {optionLabel}

@@ -89,6 +89,11 @@ export const api = {
       "/api/sessions/join",
       { method: "POST", body: JSON.stringify(input) }
     ),
+  updateParticipantProgress: (sessionId: string, participantId: string, currentQuestionIndex: number) =>
+    request<SessionSnapshot>(`/api/sessions/${sessionId}/participants/${participantId}/progress`, {
+      method: "POST",
+      body: JSON.stringify({ currentQuestionIndex })
+    }),
   submitResponse: (input: SubmitResponseInput) =>
     request("/api/responses", { method: "POST", body: JSON.stringify(input) }),
   startSession: (sessionId: string) =>

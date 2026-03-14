@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { registerAnalyticsRoutes } from "./analytics";
 import { registerExportRoutes } from "./export";
+import { registerParticipantRoutes } from "./participants";
 import { registerQuestionRoutes } from "./questions";
 import { registerResponseRoutes } from "./responses";
 import { registerSessionRoutes } from "./sessions";
@@ -12,6 +13,7 @@ export async function registerHttpRoutes(app: FastifyInstance) {
   await registerUserRoutes(app);
   await registerTemplateRoutes(app);
   await registerSessionRoutes(app);
+  await registerParticipantRoutes(app);
   await registerSlideRoutes(app);
   await registerQuestionRoutes(app);
   await registerResponseRoutes(app);

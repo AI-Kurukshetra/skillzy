@@ -1251,6 +1251,7 @@ export class SkillzyStore {
       rosterStudentId: rosterStudent?.id,
       color: ["#ffcd57", "#ff7a59", "#7ad7ff", "#b28cff"][state.participants.length % 4],
       joinedAt: now(),
+      currentQuestionIndex: 0,
       reconnectToken: createId("reconnect")
     };
 
@@ -1329,6 +1330,22 @@ export class SkillzyStore {
     });
     await this.persist();
     return response;
+  }
+
+  async updateParticipantProgress(sessionId: string, participantId: string, currentQuestionIndex: number) {
+    const state = await this.ensureReady();
+    const participant = state.participants.find(
+      (item) => item.sessionId === sessionId && item.id === participantId
+    );
+    if (!participant) return null;
+    participant.currentQuestionIndex = Math.max(0, currentQuestionIndex);
+    participant.lastSeenAt = now();
+    const snapshot = await this.getSessionSnapshot(sessionId);
+    const totalQuestions = snapshot?.questions.length ?? 0;
+    participant.completedAt =
+      totalQuestions > 0 && participant.currentQuestionIndex >= totalQuestions ? now() : undefined;
+    await this.persist();
+    return participant;
   }
 
   async pinTextResponse(responseId: string) {

@@ -81,12 +81,17 @@ function isResponseCorrect(question: Question, response: SessionSnapshot["respon
   return false;
 }
 
+function getQuestionDuration(question: Question) {
+  return question.timer?.durationSeconds ?? question.timeLimitS ?? 45;
+}
+
 export function TeacherSession({ initialSnapshot }: { initialSnapshot: SessionSnapshot }) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [connectionState, setConnectionState] = useState<"connecting" | "connected" | "reconnecting">(
     "connecting"
   );
   const [exportCsv, setExportCsv] = useState("");
+  const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
 
   useEffect(() => {
     socket.connect();
@@ -111,6 +116,66 @@ export function TeacherSession({ initialSnapshot }: { initialSnapshot: SessionSn
     (question) => question.id === snapshot.session.activeQuestionId
   );
   const currentSlide = snapshot.slides[snapshot.session.currentSlideIndex];
+  const orderedQuestions = useMemo(
+    () =>
+      snapshot.questions
+        .slice()
+        .sort((left, right) => {
+          const leftSlide = snapshot.slides.find((slide) => slide.id === left.slideId);
+          const rightSlide = snapshot.slides.find((slide) => slide.id === right.slideId);
+          const leftIndex = leftSlide?.index ?? left.slideIndex ?? 0;
+          const rightIndex = rightSlide?.index ?? right.slideIndex ?? 0;
+          if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+          return (left.orderIndex ?? 0) - (right.orderIndex ?? 0);
+        }),
+    [snapshot.questions, snapshot.slides]
+  );
+  const timedSession =
+    Boolean(snapshot.session.timerMode) ||
+    (orderedQuestions.length > 0 && orderedQuestions.every((question) => Boolean(question.timer?.enabled)));
+  const currentQuestionPosition =
+    typeof snapshot.session.timedQuestionIndex === "number"
+      ? snapshot.session.timedQuestionIndex + 1
+      : 0;
+
+  const participantProgress = useMemo(
+    () =>
+      snapshot.participants.map((participant) => {
+        const questionIndex = participant.currentQuestionIndex ?? 0;
+        const question = orderedQuestions[questionIndex] ?? null;
+        return {
+          participantId: participant.id,
+          name: participant.displayName,
+          questionIndex,
+          questionLabel:
+            questionIndex >= orderedQuestions.length
+              ? "Finished"
+              : question
+                ? `Question ${questionIndex + 1}`
+                : "Waiting",
+          questionPrompt: question?.prompt ?? "Completed all questions"
+        };
+      }),
+    [orderedQuestions, snapshot.participants]
+  );
+
+  useEffect(() => {
+    if (!timedSession || !snapshot.session.quizEndsAt || snapshot.session.status !== "live") {
+      setTimeRemaining(null);
+      return;
+    }
+
+    const endsAt = new Date(snapshot.session.quizEndsAt).getTime();
+
+    const tick = () => {
+      const remaining = (endsAt - Date.now()) / 1000;
+      setTimeRemaining(Math.max(0, remaining));
+    };
+
+    tick();
+    const interval = window.setInterval(tick, 100);
+    return () => window.clearInterval(interval);
+  }, [snapshot.session.quizEndsAt, snapshot.session.status, timedSession]);
 
   const analytics = useMemo(() => {
     if (!activeQuestion) return null;
@@ -236,22 +301,66 @@ export function TeacherSession({ initialSnapshot }: { initialSnapshot: SessionSn
             </span>
           </div>
           <p className="mt-4 text-skillzy-soft">{currentSlide?.title}</p>
+          {timedSession ? (
+            <div className="mt-5 rounded-[1.5rem] bg-white/70 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-skillzy-soft">Auto-running timed quiz</p>
+                  <p className="mt-1 text-sm text-skillzy-soft">
+                    {snapshot.participants.filter((participant) => (participant.currentQuestionIndex ?? 0) >= orderedQuestions.length).length}
+                    {" "}students finished, {orderedQuestions.length} total questions
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm text-skillzy-soft">Quiz time left</p>
+                  <p className="text-2xl font-semibold">{Math.max(0, Math.ceil(timeRemaining ?? 0))}s</p>
+                </div>
+              </div>
+              <div className="mt-3 h-3 overflow-hidden rounded-full bg-black/10">
+                <div
+                  className="h-full rounded-full bg-[#8b62ff] transition-[width] duration-100"
+                  style={{
+                    width: `${
+                      snapshot.session.startedAt && snapshot.session.quizEndsAt
+                        ? Math.max(
+                            0,
+                            Math.min(
+                              100,
+                              ((new Date(snapshot.session.quizEndsAt).getTime() - Date.now()) /
+                                (new Date(snapshot.session.quizEndsAt).getTime() -
+                                  new Date(snapshot.session.startedAt).getTime())) *
+                                100
+                            )
+                          )
+                        : 0
+                    }%`
+                  }}
+                />
+              </div>
+            </div>
+          ) : null}
           <div className="mt-5 flex flex-wrap gap-3">
-            <button onClick={startSession} className="rounded-full bg-skillzy-ink px-4 py-3 text-white">
-              Start session
+            <button
+              onClick={startSession}
+              disabled={snapshot.session.status === "live"}
+              className="rounded-full bg-skillzy-ink px-4 py-3 text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {timedSession ? "Start timed quiz" : "Start session"}
             </button>
             <button onClick={endSession} className="rounded-full border border-black/10 px-4 py-3">
-              End session
+              {timedSession ? "End quiz now" : "End session"}
             </button>
             <button onClick={handleExport} className="rounded-full border border-black/10 px-4 py-3">
               Export CSV
             </button>
-            <button
-              onClick={() => sendControl("toggle-results")}
-              className="rounded-full border border-black/10 px-4 py-3"
-            >
-              {snapshot.session.revealResults ? "Hide results" : "Reveal results"}
-            </button>
+            {!timedSession ? (
+              <button
+                onClick={() => sendControl("toggle-results")}
+                className="rounded-full border border-black/10 px-4 py-3"
+              >
+                {snapshot.session.revealResults ? "Hide results" : "Reveal results"}
+              </button>
+            ) : null}
             <a
               href={`/projector/${snapshot.session.id}`}
               target="_blank"
@@ -281,22 +390,28 @@ export function TeacherSession({ initialSnapshot }: { initialSnapshot: SessionSn
                       <p className="text-sm text-skillzy-soft">Slide {slide.index + 1}</p>
                       <h3 className="text-lg font-semibold">{slide.title}</h3>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={() => sendControl("advance-slide", { slideIndex: slide.index })}
-                        className="rounded-full border border-black/10 px-3 py-2 text-sm"
-                      >
-                        Present
-                      </button>
-                      {question ? (
+                    {timedSession ? (
+                      <span className="rounded-full bg-[#f4efff] px-3 py-2 text-sm font-semibold text-[#6f58bb]">
+                        Auto-run
+                      </span>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
                         <button
-                          onClick={() => sendControl("set-question", { questionId: question.id })}
-                          className="rounded-full bg-skillzy-ink px-3 py-2 text-sm text-white"
+                          onClick={() => sendControl("advance-slide", { slideIndex: slide.index })}
+                          className="rounded-full border border-black/10 px-3 py-2 text-sm"
                         >
-                          Activate question
+                          Present
                         </button>
-                      ) : null}
-                    </div>
+                        {question ? (
+                          <button
+                            onClick={() => sendControl("set-question", { questionId: question.id })}
+                            className="rounded-full bg-skillzy-ink px-3 py-2 text-sm text-white"
+                          >
+                            Activate question
+                          </button>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -311,9 +426,39 @@ export function TeacherSession({ initialSnapshot }: { initialSnapshot: SessionSn
           <div className="mt-4 grid grid-cols-2 gap-3">
             <Metric label="Students joined" value={snapshot.participants.length} />
             <Metric label="Responses" value={snapshot.responses.length} />
-            <Metric label="Active slide" value={snapshot.session.currentSlideIndex + 1} />
+            <Metric
+              label={timedSession ? "Students are on" : "Active slide"}
+              value={
+                timedSession
+                  ? `${Math.max(currentQuestionPosition, 0)}/${Math.max(snapshot.session.totalTimedQuestions ?? orderedQuestions.length, 0)}`
+                  : snapshot.session.currentSlideIndex + 1
+              }
+            />
             <Metric label="Status" value={snapshot.session.status} />
           </div>
+          {timedSession ? (
+            <div className="mt-4 rounded-[1.5rem] bg-white/70 p-4 text-sm text-skillzy-soft">
+              <p className="font-semibold text-skillzy-ink">Student positions</p>
+              <div className="mt-3 space-y-2">
+                {participantProgress.map((participant) => (
+                  <div
+                    key={participant.participantId}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-[1rem] bg-white px-3 py-3"
+                  >
+                    <div>
+                      <p className="font-medium text-skillzy-ink">{participant.name}</p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.14em] text-skillzy-soft">
+                        {participant.questionLabel}
+                      </p>
+                    </div>
+                    <p className="max-w-[16rem] truncate text-sm text-skillzy-soft">
+                      {participant.questionPrompt}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </CreamCard>
 
         {activeQuestion ? (

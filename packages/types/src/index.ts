@@ -180,6 +180,11 @@ export interface Session {
   currentSlide?: number;
   activeQuestionId?: string;
   revealResults: boolean;
+  timerMode?: boolean;
+  timedQuestionIndex?: number;
+  totalTimedQuestions?: number;
+  questionStartedAt?: string;
+  quizEndsAt?: string;
   anonymousMode?: boolean;
   anonymous_mode?: boolean;
   slideSource?: string | null;
@@ -200,6 +205,8 @@ export interface Participant {
   color: string;
   joinedAt: string;
   lastSeenAt?: string;
+  currentQuestionIndex?: number;
+  completedAt?: string;
   reconnectToken: string;
 }
 

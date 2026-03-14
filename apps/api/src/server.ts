@@ -3,6 +3,7 @@ import cookie from "@fastify/cookie";
 import { Server } from "socket.io";
 import { registerCorsPlugin } from "./plugins/cors";
 import { registerHttpRoutes } from "./routes/http";
+import { sessionRuntime } from "./services/session-runtime";
 import { registerSocketHandlers } from "./socket";
 
 async function bootstrap() {
@@ -20,6 +21,7 @@ async function bootstrap() {
       origin: "*"
     }
   });
+  sessionRuntime.attach(io);
   registerSocketHandlers(io);
 
   const port = Number(process.env.PORT ?? 4000);

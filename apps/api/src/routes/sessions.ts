@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { CreateClassInput, CreateDeckInput, CreateSessionInput, Session as SkillzySession, UpdateDeckInput } from "@skillzy/types";
 import { z } from "zod";
 import { fail, ok } from "./helpers";
+import { sessionRuntime } from "../services/session-runtime";
 import { skillzyStore } from "../services/store";
 import { validateSchema } from "../middleware/validateSchema";
 
@@ -137,31 +138,16 @@ export async function registerSessionRoutes(app: FastifyInstance) {
       return fail(reply, "session_missing_questions", "Add at least one question before starting.", 400);
     }
 
-    const session = await skillzyStore.updateSession(
-      sessionId,
-      (existing: SkillzySession) => ({
-        ...existing,
-        status: "waiting",
-        startedAt: existing.startedAt ?? new Date().toISOString()
-      }),
-      "session-started"
-    );
-    return ok(reply, session);
+    const nextSnapshot = await sessionRuntime.startSession(sessionId);
+    if (!nextSnapshot) return fail(reply, "session_not_found", "Session not found.", 404);
+    return ok(reply, nextSnapshot.session);
   });
 
   app.post("/api/sessions/:sessionId/end", async (request, reply) => {
     const sessionId = (request.params as { sessionId: string }).sessionId;
-    const session = await skillzyStore.updateSession(
-      sessionId,
-      (existing: SkillzySession) => ({
-        ...existing,
-        status: "ended",
-        endedAt: new Date().toISOString()
-      }),
-      "session-ended"
-    );
-    if (!session) return fail(reply, "session_not_found", "Session not found.", 404);
-    return ok(reply, session);
+    const nextSnapshot = await sessionRuntime.stopSession(sessionId);
+    if (!nextSnapshot) return fail(reply, "session_not_found", "Session not found.", 404);
+    return ok(reply, nextSnapshot.session);
   });
 
   app.get("/api/sessions/:id/summary", async (request, reply) => {
