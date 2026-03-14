@@ -55,7 +55,7 @@ export default async function StudentPage() {
             Use the same join-code flow as before, now from your own dashboard.
           </p>
           <div className="mt-6">
-            <StudentJoinForm />
+            <StudentJoinForm signedInDisplayName={displayName} />
           </div>
         </CreamCard>
       </div>

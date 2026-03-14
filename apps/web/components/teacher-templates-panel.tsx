@@ -10,6 +10,11 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "../lib/api";
 
+const fieldClassName =
+  "rounded-[1.1rem] border border-[#ebe4ff] bg-white px-4 py-3 text-[#1a1630] outline-none placeholder:text-[#8a82a2]";
+const areaClassName =
+  "w-full rounded-[1.3rem] border border-[#ebe4ff] bg-white px-4 py-3 text-[#1a1630] outline-none placeholder:text-[#8a82a2]";
+
 function createEmptySlide(): CreateTemplateSlideInput {
   return {
     title: "",
@@ -164,25 +169,25 @@ export function TeacherTemplatesPanel({ dashboard }: { dashboard: DashboardData 
             value={customTemplate.title}
             onChange={(event) => setCustomTemplate((current) => ({ ...current, title: event.target.value }))}
             placeholder="Template title"
-            className="rounded-[1.1rem] border border-[#ebe4ff] px-4 py-3 outline-none"
+            className={fieldClassName}
           />
           <input
             value={customTemplate.subject}
             onChange={(event) => setCustomTemplate((current) => ({ ...current, subject: event.target.value }))}
             placeholder="Subject"
-            className="rounded-[1.1rem] border border-[#ebe4ff] px-4 py-3 outline-none"
+            className={fieldClassName}
           />
           <input
             value={customTemplate.gradeBand}
             onChange={(event) => setCustomTemplate((current) => ({ ...current, gradeBand: event.target.value }))}
             placeholder="Grade band"
-            className="rounded-[1.1rem] border border-[#ebe4ff] px-4 py-3 outline-none"
+            className={fieldClassName}
           />
           <input
             value={customTemplate.description}
             onChange={(event) => setCustomTemplate((current) => ({ ...current, description: event.target.value }))}
             placeholder="What is this template for?"
-            className="rounded-[1.1rem] border border-[#ebe4ff] px-4 py-3 outline-none"
+            className={fieldClassName}
           />
         </div>
 
@@ -224,7 +229,7 @@ export function TeacherTemplatesPanel({ dashboard }: { dashboard: DashboardData 
                       updateSlide(index, (current) => ({ ...current, title: event.target.value }))
                     }
                     placeholder="Slide title"
-                    className="rounded-[1.1rem] border border-[#ebe4ff] px-4 py-3 outline-none"
+                    className={fieldClassName}
                   />
                   <input
                     value={question?.prompt ?? ""}
@@ -232,7 +237,7 @@ export function TeacherTemplatesPanel({ dashboard }: { dashboard: DashboardData 
                       updateQuestion(index, (current) => ({ ...current, prompt: event.target.value }))
                     }
                     placeholder="Question prompt"
-                    className="rounded-[1.1rem] border border-[#ebe4ff] px-4 py-3 outline-none"
+                    className={fieldClassName}
                   />
                 </div>
 
@@ -242,7 +247,7 @@ export function TeacherTemplatesPanel({ dashboard }: { dashboard: DashboardData 
                     updateSlide(index, (current) => ({ ...current, body: event.target.value }))
                   }
                   placeholder="Slide instructions or context"
-                  className="mt-3 min-h-24 w-full rounded-[1.3rem] border border-[#ebe4ff] px-4 py-3 outline-none"
+                  className={`mt-3 min-h-24 ${areaClassName}`}
                 />
 
                 <div className="mt-3 space-y-3">
@@ -273,7 +278,7 @@ export function TeacherTemplatesPanel({ dashboard }: { dashboard: DashboardData 
                           })
                         }
                         placeholder={`Option ${optionIndex + 1}`}
-                        className="flex-1 rounded-[1.1rem] border border-[#ebe4ff] px-4 py-3 outline-none"
+                        className={`flex-1 ${fieldClassName}`}
                       />
                       <button
                         type="button"
@@ -340,7 +345,7 @@ export function TeacherTemplatesPanel({ dashboard }: { dashboard: DashboardData 
                         }
                       }))
                     }
-                    className="rounded-[1.1rem] border border-[#ebe4ff] px-4 py-3 outline-none"
+                    className={fieldClassName}
                   >
                     {options.map((option, optionIndex) => (
                       <option key={`${option}-${optionIndex}`} value={optionIndex}>

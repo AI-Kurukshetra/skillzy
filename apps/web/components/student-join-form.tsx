@@ -10,7 +10,7 @@ function autoName() {
   return `Guest ${Math.floor(Math.random() * 900 + 100)}`;
 }
 
-export function StudentJoinForm() {
+export function StudentJoinForm({ signedInDisplayName }: { signedInDisplayName?: string }) {
   const router = useRouter();
   const codeInputRef = useRef<HTMLInputElement | null>(null);
   const [joinCode, setJoinCode] = useState("");
@@ -34,8 +34,15 @@ export function StudentJoinForm() {
       const nextMeta = await api.lookupJoinCode(joinCode);
       setSessionMeta(nextMeta);
 
+      const preferredName = signedInDisplayName?.trim();
+
       if (nextMeta.anonymous_mode) {
-        await completeJoin(nextMeta.code, autoName());
+        await completeJoin(nextMeta.code, preferredName || autoName());
+        return;
+      }
+
+      if (preferredName) {
+        await completeJoin(nextMeta.code, preferredName);
         return;
       }
 
@@ -69,7 +76,7 @@ export function StudentJoinForm() {
     setError("");
 
     try {
-      await completeJoin(sessionMeta.code, displayName.trim() || autoName());
+      await completeJoin(sessionMeta.code, displayName.trim() || signedInDisplayName?.trim() || autoName());
     } catch {
       setError("We couldn't finish joining the session. Try again.");
     } finally {

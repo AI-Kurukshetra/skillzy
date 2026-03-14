@@ -22,6 +22,65 @@ function isRatingQuestion(question: Question): question is Extract<Question, { t
   return question.type === "rating-scale" || question.type === "rating";
 }
 
+function getChoiceOptionLabel(option: string | { id: string; text: string; isCorrect?: boolean }) {
+  return typeof option === "string" ? option : option.text;
+}
+
+function getCorrectAnswerLabel(question: Question) {
+  if (question.type === "multiple-choice" || question.type === "mcq") {
+    const indexes = question.correctOptionIndexes ?? [];
+    if (indexes.length === 0) return null;
+    return indexes
+      .map((index) => question.options[index])
+      .filter(Boolean)
+      .map((option) => getChoiceOptionLabel(option as string | { id: string; text: string; isCorrect?: boolean }))
+      .join(", ");
+  }
+
+  if (question.type === "rating-scale" || question.type === "rating") {
+    return question.correctRating ? `Correct rating: ${question.correctRating}` : null;
+  }
+
+  if (question.type === "drag-rank") {
+    return question.correctOrder?.join(" -> ") ?? null;
+  }
+
+  if (question.type === "true_false") {
+    return question.correctId === "true" ? "True" : question.correctId === "false" ? "False" : null;
+  }
+
+  return null;
+}
+
+function areNumberSetsEqual(left: number[], right: number[]) {
+  if (left.length !== right.length) return false;
+  const sortedLeft = [...left].sort((a, b) => a - b);
+  const sortedRight = [...right].sort((a, b) => a - b);
+  return sortedLeft.every((value, index) => value === sortedRight[index]);
+}
+
+function isResponseCorrect(question: Question, response: SessionSnapshot["responses"][number]) {
+  if (response.questionId !== question.id) return false;
+
+  if ((question.type === "multiple-choice" || question.type === "mcq") && (response.type === "multiple-choice" || response.type === "mcq")) {
+    return areNumberSetsEqual(response.selectedOptionIndexes, question.correctOptionIndexes ?? []);
+  }
+
+  if ((question.type === "rating-scale" || question.type === "rating") && (response.type === "rating-scale" || response.type === "rating")) {
+    return question.correctRating !== undefined && response.rating === question.correctRating;
+  }
+
+  if (question.type === "drag-rank" && response.type === "drag-rank") {
+    return JSON.stringify(response.orderedItems) === JSON.stringify(question.correctOrder ?? []);
+  }
+
+  if (question.type === "true_false" && response.type === "true_false") {
+    return question.correctId !== undefined && response.selectedId === question.correctId;
+  }
+
+  return false;
+}
+
 export function TeacherSession({ initialSnapshot }: { initialSnapshot: SessionSnapshot }) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [connectionState, setConnectionState] = useState<"connecting" | "connected" | "reconnecting">(
@@ -78,6 +137,36 @@ export function TeacherSession({ initialSnapshot }: { initialSnapshot: SessionSn
     }
     return responses;
   }, [activeQuestion, snapshot.responses]);
+
+  const answerKey = useMemo(
+    () =>
+      snapshot.questions
+        .map((question) => ({
+          questionId: question.id,
+          prompt: question.prompt,
+          answer: getCorrectAnswerLabel(question)
+        }))
+        .filter((item) => item.answer),
+    [snapshot.questions]
+  );
+
+  const leaderboard = useMemo(() => {
+    const gradableQuestions = snapshot.questions.filter((question) => Boolean(getCorrectAnswerLabel(question)));
+    return snapshot.participants
+      .map((participant) => {
+        const participantResponses = snapshot.responses.filter((response) => response.participantId === participant.id);
+        const correctCount = gradableQuestions.filter((question) =>
+          participantResponses.some((response) => isResponseCorrect(question, response))
+        ).length;
+        return {
+          participantId: participant.id,
+          name: participant.displayName,
+          correctCount,
+          totalQuestions: gradableQuestions.length
+        };
+      })
+      .sort((left, right) => right.correctCount - left.correctCount || left.name.localeCompare(right.name));
+  }, [snapshot.participants, snapshot.questions, snapshot.responses]);
 
   function sendControl(
     action: "advance-slide" | "set-question" | "toggle-results",
@@ -209,6 +298,46 @@ export function TeacherSession({ initialSnapshot }: { initialSnapshot: SessionSn
           <CreamCard>
             <h3 className="text-xl font-semibold">{activeQuestion.prompt}</h3>
             <AnalyticsView question={activeQuestion} analytics={analytics} />
+          </CreamCard>
+        ) : null}
+
+        {snapshot.session.revealResults ? (
+          <CreamCard>
+            <h3 className="text-xl font-semibold">Reveal results</h3>
+            <div className="mt-4 space-y-3">
+              {answerKey.length > 0 ? (
+                answerKey.map((item) => (
+                  <div key={item.questionId} className="rounded-[1.5rem] bg-white/70 p-4">
+                    <p className="text-sm text-skillzy-soft">{item.prompt}</p>
+                    <p className="mt-2 font-semibold">{item.answer}</p>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-[1.5rem] bg-white/70 p-4 text-sm text-skillzy-soft">
+                  This session does not have auto-gradable correct answers yet.
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5">
+              <h4 className="text-lg font-semibold">Leaderboard</h4>
+              <div className="mt-3 space-y-3">
+                {leaderboard.map((entry, index) => (
+                  <div
+                    key={entry.participantId}
+                    className="flex items-center justify-between rounded-[1.5rem] bg-white/70 p-4"
+                  >
+                    <div>
+                      <p className="text-sm text-skillzy-soft">#{index + 1}</p>
+                      <p className="font-semibold">{entry.name}</p>
+                    </div>
+                    <p className="text-sm font-semibold text-skillzy-soft">
+                      {entry.correctCount}/{entry.totalQuestions} correct
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
           </CreamCard>
         ) : null}
 

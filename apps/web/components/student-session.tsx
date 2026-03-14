@@ -30,6 +30,32 @@ function getChoiceOptionLabel(option: string | { id: string; text: string; isCor
   return typeof option === "string" ? option : option.text;
 }
 
+function getCorrectAnswerLabel(question: Question) {
+  if (question.type === "multiple-choice" || question.type === "mcq") {
+    const indexes = question.correctOptionIndexes ?? [];
+    if (indexes.length === 0) return null;
+    return indexes
+      .map((index) => question.options[index])
+      .filter(Boolean)
+      .map((option) => getChoiceOptionLabel(option as string | { id: string; text: string; isCorrect?: boolean }))
+      .join(", ");
+  }
+
+  if (question.type === "rating-scale" || question.type === "rating") {
+    return question.correctRating ? `Correct rating: ${question.correctRating}` : null;
+  }
+
+  if (question.type === "drag-rank") {
+    return question.correctOrder?.join(" -> ") ?? null;
+  }
+
+  if (question.type === "true_false") {
+    return question.correctId === "true" ? "True" : question.correctId === "false" ? "False" : null;
+  }
+
+  return null;
+}
+
 export function StudentSession({
   sessionId,
   initialSnapshot
@@ -79,6 +105,12 @@ export function StudentSession({
 
   useEffect(() => {
     setSubmitted(false);
+    setTextAnswer("");
+    setMcqAnswer([]);
+    setDrawingAnswer(drawPlaceholder());
+    setRatingAnswer(0);
+    setHotspotAnswer({ x: 50, y: 50 });
+    setRankAnswer([]);
   }, [activeQuestion?.id]);
 
   const analytics = useMemo(() => {
@@ -189,6 +221,15 @@ export function StudentSession({
           {submitted ? (
             <div className="mt-5 rounded-[1.5rem] bg-[#e7f6ec] p-4 text-sm text-[#235a35]">
               Response submitted successfully. You can wait for your teacher to move to the next question.
+            </div>
+          ) : null}
+          {snapshot.session.revealResults && activeQuestion ? (
+            <div className="mt-4 rounded-[1.5rem] bg-[#fff6e8] p-4 text-sm text-[#8f6419]">
+              <p className="font-semibold text-[#5f4817]">Correct answer</p>
+              <p className="mt-1">
+                {getCorrectAnswerLabel(activeQuestion) ??
+                  "Your teacher has revealed the class results for this question."}
+              </p>
             </div>
           ) : null}
           <button
