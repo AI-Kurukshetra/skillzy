@@ -22,10 +22,11 @@ import type {
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000").trim();
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const hasBody = init?.body !== undefined;
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
     headers: {
-      "Content-Type": "application/json",
+      ...(hasBody ? { "Content-Type": "application/json" } : {}),
       ...(init?.headers ?? {})
     },
     cache: "no-store"

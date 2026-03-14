@@ -347,10 +347,9 @@ export function StudentSession({
         </div>
       ) : null}
 
-      <CreamCard className="ticket-notch px-5 pb-5 pt-8">
+      <CreamCard className="px-5 py-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-xs uppercase tracking-[0.22em] text-skillzy-soft">Live class</p>
             <h1 className="mt-1 line-clamp-2 text-xl font-semibold leading-tight">{snapshot.deck.title}</h1>
           </div>
           <span className="shrink-0 rounded-full bg-white/70 px-3 py-1 text-xs font-semibold text-skillzy-soft">
