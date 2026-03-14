@@ -1,6 +1,6 @@
 "use client";
 
-import type { Question, SessionSnapshot } from "@skillzy/types";
+import { SkillzySocketEvent, type Question, type SessionSnapshot } from "@skillzy/types";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { socket } from "../lib/socket";
@@ -33,13 +33,13 @@ export function TeacherSession({ initialSnapshot }: { initialSnapshot: SessionSn
     const handleDisconnect = () => setConnectionState("reconnecting");
 
     socket.emit("session:subscribe", snapshot.session.id);
-    socket.on("session:updated", (nextSnapshot: SessionSnapshot | null) => {
+    socket.on(SkillzySocketEvent.SessionState, (nextSnapshot: SessionSnapshot | null) => {
       if (nextSnapshot) setSnapshot(nextSnapshot);
     });
     socket.on("connect", handleConnect);
     socket.on("disconnect", handleDisconnect);
     return () => {
-      socket.off("session:updated");
+      socket.off(SkillzySocketEvent.SessionState);
       socket.off("connect", handleConnect);
       socket.off("disconnect", handleDisconnect);
       socket.disconnect();
