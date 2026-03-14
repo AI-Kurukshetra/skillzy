@@ -56,6 +56,41 @@ function getCorrectAnswerLabel(question: Question) {
   return null;
 }
 
+function areNumberSetsEqual(left: number[], right: number[]) {
+  if (left.length !== right.length) return false;
+  const sortedLeft = [...left].sort((a, b) => a - b);
+  const sortedRight = [...right].sort((a, b) => a - b);
+  return sortedLeft.every((value, index) => value === sortedRight[index]);
+}
+
+function isResponseCorrect(question: Question, response: SessionSnapshot["responses"][number]) {
+  if (response.questionId !== question.id) return false;
+
+  if (
+    (question.type === "multiple-choice" || question.type === "mcq") &&
+    (response.type === "multiple-choice" || response.type === "mcq")
+  ) {
+    return areNumberSetsEqual(response.selectedOptionIndexes, question.correctOptionIndexes ?? []);
+  }
+
+  if (
+    (question.type === "rating-scale" || question.type === "rating") &&
+    (response.type === "rating-scale" || response.type === "rating")
+  ) {
+    return question.correctRating !== undefined && response.rating === question.correctRating;
+  }
+
+  if (question.type === "drag-rank" && response.type === "drag-rank") {
+    return JSON.stringify(response.orderedItems) === JSON.stringify(question.correctOrder ?? []);
+  }
+
+  if (question.type === "true_false" && response.type === "true_false") {
+    return question.correctId !== undefined && response.selectedId === question.correctId;
+  }
+
+  return false;
+}
+
 export function StudentSession({
   sessionId,
   initialSnapshot
@@ -138,6 +173,25 @@ export function StudentSession({
     }
     return responses;
   }, [activeQuestion, snapshot.responses, snapshot.session.revealResults]);
+
+  const leaderboard = useMemo(() => {
+    if (!snapshot.session.revealResults) return [];
+    const gradableQuestions = snapshot.questions.filter((question) => Boolean(getCorrectAnswerLabel(question)));
+    return snapshot.participants
+      .map((participant) => {
+        const participantResponses = snapshot.responses.filter((response) => response.participantId === participant.id);
+        const correctCount = gradableQuestions.filter((question) =>
+          participantResponses.some((response) => isResponseCorrect(question, response))
+        ).length;
+        return {
+          participantId: participant.id,
+          name: participant.displayName,
+          correctCount,
+          totalQuestions: gradableQuestions.length
+        };
+      })
+      .sort((left, right) => right.correctCount - left.correctCount || left.name.localeCompare(right.name));
+  }, [snapshot.participants, snapshot.questions, snapshot.responses, snapshot.session.revealResults]);
 
   async function submit() {
     if (!activeQuestion || !participantId) return;
@@ -280,6 +334,33 @@ export function StudentSession({
               ))}
             </ul>
           )}
+        </CreamCard>
+      ) : null}
+
+      {snapshot.session.revealResults && leaderboard.length > 0 ? (
+        <CreamCard>
+          <h3 className="text-xl font-semibold">Leaderboard</h3>
+          <div className="mt-4 space-y-3">
+            {leaderboard.map((entry, index) => (
+              <div
+                key={entry.participantId}
+                className={`flex items-center justify-between rounded-[1.5rem] p-4 ${
+                  entry.participantId === participantId ? "bg-[#f4efff] ring-2 ring-[#8b62ff]/20" : "bg-white/70"
+                }`}
+              >
+                <div>
+                  <p className="text-sm text-skillzy-soft">#{index + 1}</p>
+                  <p className="font-semibold">
+                    {entry.name}
+                    {entry.participantId === participantId ? " (You)" : ""}
+                  </p>
+                </div>
+                <p className="text-sm font-semibold text-skillzy-soft">
+                  {entry.correctCount}/{entry.totalQuestions} correct
+                </p>
+              </div>
+            ))}
+          </div>
         </CreamCard>
       ) : null}
     </div>
