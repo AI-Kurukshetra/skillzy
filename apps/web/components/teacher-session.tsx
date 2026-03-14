@@ -1,6 +1,7 @@
 "use client";
 
 import type { Question, SessionSnapshot } from "@skillzy/types";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { socket } from "../lib/socket";
@@ -86,13 +87,14 @@ function getQuestionDuration(question: Question) {
 }
 
 export function TeacherSession({ initialSnapshot }: { initialSnapshot: SessionSnapshot }) {
+  const router = useRouter();
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [connectionState, setConnectionState] = useState<"connecting" | "connected" | "reconnecting">(
     "connecting"
   );
   const [exportCsv, setExportCsv] = useState("");
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null);
-  const [busyAction, setBusyAction] = useState<"start" | "end" | "export" | "copy" | null>(null);
+  const [busyAction, setBusyAction] = useState<"start" | "end" | "export" | "copy" | "close" | null>(null);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -159,6 +161,30 @@ export function TeacherSession({ initialSnapshot }: { initialSnapshot: SessionSn
         };
       }),
     [orderedQuestions, snapshot.participants]
+  );
+  const completedParticipantsCount = useMemo(
+    () =>
+      snapshot.participants.filter(
+        (participant) => (participant.currentQuestionIndex ?? 0) >= orderedQuestions.length
+      ).length,
+    [orderedQuestions.length, snapshot.participants]
+  );
+  const activeParticipantsCount = Math.max(snapshot.participants.length - completedParticipantsCount, 0);
+  const latestQuestionIndex = useMemo(() => {
+    if (snapshot.participants.length === 0) return 0;
+    return snapshot.participants.reduce(
+      (highest, participant) =>
+        Math.max(highest, Math.min(participant.currentQuestionIndex ?? 0, Math.max(orderedQuestions.length - 1, 0))),
+      0
+    );
+  }, [orderedQuestions.length, snapshot.participants]);
+  const participantsOnLatestQuestion = useMemo(
+    () =>
+      snapshot.participants.filter((participant) => {
+        const index = participant.currentQuestionIndex ?? 0;
+        return index < orderedQuestions.length && index === latestQuestionIndex;
+      }).length,
+    [latestQuestionIndex, orderedQuestions.length, snapshot.participants]
   );
 
   useEffect(() => {
@@ -314,6 +340,21 @@ export function TeacherSession({ initialSnapshot }: { initialSnapshot: SessionSn
     }
   }
 
+  async function closeSessionTab() {
+    setBusyAction("close");
+    setMessage("");
+    try {
+      await api.exportSession(snapshot.session.id);
+      setMessage("Session saved to reports. Closing this tab...");
+      window.close();
+      window.setTimeout(() => {
+        router.push("/teacher/reports");
+      }, 250);
+    } finally {
+      window.setTimeout(() => setBusyAction(null), 400);
+    }
+  }
+
   return (
     <div className="grid gap-6 xl:grid-cols-[1.2fr_0.9fr]">
       <section className="space-y-4">
@@ -327,14 +368,12 @@ export function TeacherSession({ initialSnapshot }: { initialSnapshot: SessionSn
         <CreamCard className="ticket-notch pt-10">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-sm uppercase tracking-[0.25em] text-skillzy-soft">Live controller</p>
               <h1 className="mt-2 text-3xl font-semibold">{snapshot.deck.title}</h1>
             </div>
             <span className="rounded-full bg-skillzy-ink px-4 py-2 text-sm font-semibold text-white">
               Join code {snapshot.session.joinCode}
             </span>
           </div>
-          <p className="mt-4 text-skillzy-soft">{currentSlide?.title}</p>
           {message ? (
             <div className="mt-4 rounded-[1.2rem] bg-[#f4efff] px-4 py-3 text-sm text-[#5f47a6]">
               {message}
@@ -397,6 +436,15 @@ export function TeacherSession({ initialSnapshot }: { initialSnapshot: SessionSn
             >
               {busyAction === "end" ? "Ending..." : timedSession ? "End quiz now" : "End session"}
             </button>
+            {snapshot.session.status === "ended" ? (
+              <button
+                onClick={closeSessionTab}
+                disabled={busyAction !== null}
+                className="rounded-full bg-[#d64242] px-4 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {busyAction === "close" ? "Ending session..." : "End session"}
+              </button>
+            ) : null}
             <button
               onClick={copyJoinCode}
               disabled={busyAction !== null}
@@ -485,22 +533,29 @@ export function TeacherSession({ initialSnapshot }: { initialSnapshot: SessionSn
           <div className="mt-4 grid grid-cols-2 gap-3">
             <Metric label="Students joined" value={snapshot.participants.length} />
             <Metric label="Responses" value={snapshot.responses.length} />
-            <Metric
-              label="Answered current"
-              value={
-                activeQuestion
-                  ? snapshot.responses.filter((response) => response.questionId === activeQuestion.id).length
-                  : 0
-              }
-            />
-            <Metric
-              label={timedSession ? "Students are on" : "Active slide"}
-              value={
-                timedSession
-                  ? `${Math.max(currentQuestionPosition, 0)}/${Math.max(snapshot.session.totalTimedQuestions ?? orderedQuestions.length, 0)}`
-                  : snapshot.session.currentSlideIndex + 1
-              }
-            />
+            {timedSession ? (
+              <>
+                <Metric label="Active now" value={activeParticipantsCount} />
+                <Metric label="Finished" value={completedParticipantsCount} />
+                <Metric
+                  label="Furthest question"
+                  value={`${Math.min(latestQuestionIndex + 1, Math.max(orderedQuestions.length, 1))}/${Math.max(orderedQuestions.length, 1)}`}
+                />
+                <Metric label="On that question" value={participantsOnLatestQuestion} />
+              </>
+            ) : (
+              <>
+                <Metric
+                  label="Answered current"
+                  value={
+                    activeQuestion
+                      ? snapshot.responses.filter((response) => response.questionId === activeQuestion.id).length
+                      : 0
+                  }
+                />
+                <Metric label="Active slide" value={snapshot.session.currentSlideIndex + 1} />
+              </>
+            )}
             <Metric label="Status" value={snapshot.session.status} />
           </div>
           {timedSession ? (

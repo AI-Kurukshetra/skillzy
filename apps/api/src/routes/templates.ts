@@ -13,4 +13,10 @@ export async function registerTemplateRoutes(app: FastifyInstance) {
     if (!template) return fail(reply, "template_not_found", "Template not found.", 404);
     return ok(reply, template);
   });
+  app.delete("/api/templates/:id", async (request, reply) => {
+    const id = (request.params as { id: string }).id;
+    const template = await skillzyStore.deleteTemplate(id);
+    if (!template) return fail(reply, "template_not_found", "Template not found.", 404);
+    return ok(reply, template);
+  });
 }

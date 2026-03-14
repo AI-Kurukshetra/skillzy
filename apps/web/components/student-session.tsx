@@ -373,7 +373,7 @@ export function StudentSession({
       : null;
 
   return (
-    <div className="space-y-5">
+    <div className="flex min-h-[calc(100vh-8rem)] flex-col gap-5">
       {connectionState !== "connected" ? (
         <div className="rounded-[1.5rem] border border-[#f3d9a8] bg-[#fff6e8] px-4 py-3 text-sm text-[#8f6419]">
           {connectionState === "connecting"
@@ -382,7 +382,7 @@ export function StudentSession({
         </div>
       ) : null}
 
-      <CreamCard className="px-5 py-5">
+      <CreamCard className="shrink-0 px-5 py-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h1 className="mt-1 line-clamp-2 text-xl font-semibold leading-tight">{snapshot.deck.title}</h1>
@@ -399,7 +399,8 @@ export function StudentSession({
       </CreamCard>
 
       {finalSummary ? (
-        <CreamCard>
+        <CreamCard className="flex-1 overflow-hidden">
+          <div className="h-full overflow-y-auto pr-1">
           <p className="text-sm uppercase tracking-[0.25em] text-skillzy-soft">Quiz summary</p>
           <h2 className="mt-2 text-2xl font-semibold">Timed quiz complete</h2>
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -434,31 +435,35 @@ export function StudentSession({
               </div>
             ))}
           </div>
+          </div>
         </CreamCard>
       ) : activeQuestion ? (
-        <CreamCard>
-          <p className="text-sm uppercase tracking-[0.25em] text-skillzy-soft">
-            {formatQuestionType(activeQuestion)}
-          </p>
-          <h2 className="mt-2 text-2xl font-semibold">{activeQuestion.prompt}</h2>
-          {timedSession && progressPercent !== null ? (
-            <div className="mt-5 rounded-[1.5rem] bg-white/70 p-4">
-              <div className="flex items-center justify-between gap-3 text-sm font-semibold text-skillzy-soft">
-                <span>Time remaining for this question</span>
-                <span>{Math.max(0, Math.ceil(timeRemaining ?? 0))}s</span>
+        <CreamCard className="flex flex-1 flex-col overflow-hidden">
+          <div className="shrink-0">
+            <p className="text-sm uppercase tracking-[0.25em] text-skillzy-soft">
+              {formatQuestionType(activeQuestion)}
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold">{activeQuestion.prompt}</h2>
+            {timedSession && progressPercent !== null ? (
+              <div className="mt-5 rounded-[1.5rem] bg-white/70 p-4">
+                <div className="flex items-center justify-between gap-3 text-sm font-semibold text-skillzy-soft">
+                  <span>Time remaining for this question</span>
+                  <span>{Math.max(0, Math.ceil(timeRemaining ?? 0))}s</span>
+                </div>
+                <div className="mt-3 h-3 overflow-hidden rounded-full bg-black/10">
+                  <div
+                    className="h-full rounded-full bg-[#8b62ff] transition-[width] duration-100"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
               </div>
-              <div className="mt-3 h-3 overflow-hidden rounded-full bg-black/10">
-                <div
-                  className="h-full rounded-full bg-[#8b62ff] transition-[width] duration-100"
-                  style={{ width: `${progressPercent}%` }}
-                />
-              </div>
-            </div>
-          ) : null}
+            ) : null}
+          </div>
 
           <QuestionResponseForm
             question={activeQuestion}
             disabled={submitted || advancing || snapshot.session.status !== "live"}
+            className="mt-5 flex-1"
             textAnswer={textAnswer}
             setTextAnswer={setTextAnswer}
             mcqAnswer={mcqAnswer}
@@ -472,26 +477,28 @@ export function StudentSession({
             rankAnswer={rankAnswer}
             setRankAnswer={setRankAnswer}
           />
-          {advancing ? (
-            <div className="mt-5 rounded-[1.5rem] bg-[#e7f6ec] p-4 text-sm text-[#235a35]">
-              Answer saved. Moving you forward without waiting for the rest of the class.
-            </div>
-          ) : null}
-          <button
-            onClick={submit}
-            disabled={
-              submitted ||
-              advancing ||
-              snapshot.session.status !== "live" ||
-              (isChoiceQuestion(activeQuestion) && mcqAnswer.length === 0)
-            }
-            className="mt-5 w-full rounded-full bg-skillzy-ink px-5 py-4 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {advancing ? "Moving ahead..." : submitted ? "Response submitted" : "Submit response"}
-          </button>
+          <div className="mt-5 shrink-0">
+            {advancing ? (
+              <div className="rounded-[1.5rem] bg-[#e7f6ec] p-4 text-sm text-[#235a35]">
+                Answer saved. Moving you forward without waiting for the rest of the class.
+              </div>
+            ) : null}
+            <button
+              onClick={submit}
+              disabled={
+                submitted ||
+                advancing ||
+                snapshot.session.status !== "live" ||
+                (isChoiceQuestion(activeQuestion) && mcqAnswer.length === 0)
+              }
+              className="mt-5 w-full rounded-full bg-skillzy-ink px-5 py-4 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {advancing ? "Moving ahead..." : submitted ? "Response submitted" : "Submit response"}
+            </button>
+          </div>
         </CreamCard>
       ) : (
-        <CreamCard>
+        <CreamCard className="flex flex-1 items-center">
           <p className="text-sm text-skillzy-soft">
             {snapshot.session.status === "ended"
               ? "This quiz has ended."
@@ -586,6 +593,7 @@ function isRatingAnalytics(
 function QuestionResponseForm({
   question,
   disabled,
+  className,
   textAnswer,
   setTextAnswer,
   mcqAnswer,
@@ -601,6 +609,7 @@ function QuestionResponseForm({
 }: {
   question: Question;
   disabled: boolean;
+  className?: string;
   textAnswer: string;
   setTextAnswer: (value: string) => void;
   mcqAnswer: number[];
@@ -616,7 +625,8 @@ function QuestionResponseForm({
 }) {
   if (question.type === "multiple-choice" || question.type === "mcq") {
     return (
-      <div className="mt-4 space-y-3">
+      <div className={`${className ?? ""} flex flex-col justify-start`}>
+        <div className="space-y-3">
         {question.options.map((option, index) => {
           const active = mcqAnswer.includes(index);
           const optionLabel = getChoiceOptionLabel(option);
@@ -643,6 +653,7 @@ function QuestionResponseForm({
             </button>
           );
         })}
+        </div>
       </div>
     );
   }
@@ -653,7 +664,7 @@ function QuestionResponseForm({
         value={textAnswer}
         disabled={disabled}
         onChange={(event) => setTextAnswer(event.target.value.slice(0, question.maxLength))}
-        className="mt-4 min-h-40 w-full rounded-[1.5rem] border border-black/10 bg-white/70 p-4 outline-none disabled:cursor-not-allowed disabled:opacity-60"
+        className={`${className ?? ""} min-h-[16rem] w-full rounded-[1.5rem] border border-black/10 bg-white/70 p-4 outline-none disabled:cursor-not-allowed disabled:opacity-60`}
         placeholder="Type your answer here..."
       />
     );
@@ -661,7 +672,7 @@ function QuestionResponseForm({
 
   if (question.type === "rating-scale" || question.type === "rating") {
     return (
-      <div className="mt-4 space-y-4">
+      <div className={`${className ?? ""} flex flex-col justify-start space-y-4`}>
         <div className="flex items-center justify-between text-sm text-skillzy-soft">
           <span>{question.minLabel}</span>
           <span>{question.maxLabel}</span>
@@ -687,7 +698,7 @@ function QuestionResponseForm({
 
   if (question.type === "image-hotspot") {
     return (
-      <div className="mt-4 space-y-3">
+      <div className={`${className ?? ""} flex flex-col justify-start space-y-3`}>
         <p className="text-sm text-skillzy-soft">{question.hotspotLabel}</p>
         <button
           type="button"
@@ -715,7 +726,8 @@ function QuestionResponseForm({
   if (question.type === "drag-rank") {
     const currentItems = rankAnswer.length > 0 ? rankAnswer : question.items;
     return (
-      <div className="mt-4 space-y-3">
+      <div className={`${className ?? ""} flex flex-col justify-start`}>
+        <div className="space-y-3">
         {currentItems.map((item, index) => (
           <div key={item} className="flex items-center justify-between rounded-3xl bg-white/70 px-4 py-3">
             <span>{item}</span>
@@ -747,12 +759,13 @@ function QuestionResponseForm({
             </div>
           </div>
         ))}
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="mt-4 rounded-[1.5rem] border border-dashed border-black/15 bg-white/70 p-4">
+    <div className={`${className ?? ""} rounded-[1.5rem] border border-dashed border-black/15 bg-white/70 p-4`}>
       <div className="mb-3 rounded-[1.25rem] bg-white p-4 text-sm text-skillzy-soft">
         Drawing mode is represented by editable SVG path data in this MVP.
       </div>

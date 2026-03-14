@@ -56,6 +56,8 @@ export const api = {
   listTemplates: () => request<LessonTemplate[]>("/api/templates"),
   createTemplate: (input: CreateLessonTemplateInput) =>
     request<LessonTemplate>("/api/templates", { method: "POST", body: JSON.stringify(input) }),
+  deleteTemplate: (templateId: string) =>
+    request<LessonTemplate>(`/api/templates/${templateId}`, { method: "DELETE" }),
   createClass: (input: CreateClassInput) =>
     request("/api/classes", { method: "POST", body: JSON.stringify(input) }),
   createDeck: (input: CreateDeckInput) =>

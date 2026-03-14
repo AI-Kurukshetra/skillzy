@@ -17,6 +17,11 @@ export async function GET(request: Request) {
   }
 
   const response = NextResponse.redirect(`${origin}${redirectTo}`);
+  response.cookies.set("skillzy_portal", redirectTo, {
+    path: "/",
+    sameSite: "lax",
+    maxAge: 60 * 60 * 24 * 365
+  });
 
   const supabase = createServerClient(url, anonKey, {
     cookies: {

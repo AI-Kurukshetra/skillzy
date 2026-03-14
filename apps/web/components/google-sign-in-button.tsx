@@ -16,6 +16,7 @@ export function GoogleSignInButton({
     const supabase = createSupabaseBrowserClient();
     if (!supabase) return;
     setPending(true);
+    document.cookie = `skillzy_portal=${encodeURIComponent(next)}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
 
     const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
     await supabase.auth.signInWithOAuth({

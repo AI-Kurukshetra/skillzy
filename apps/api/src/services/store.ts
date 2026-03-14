@@ -1013,6 +1013,15 @@ export class SkillzyStore {
     return template;
   }
 
+  async deleteTemplate(templateId: string) {
+    const state = await this.ensureReady();
+    const existing = state.templates.find((template) => template.id === templateId);
+    if (!existing) return null;
+    state.templates = state.templates.filter((template) => template.id !== templateId);
+    await this.persist();
+    return existing;
+  }
+
   async queueImport(fileName: string, source: ImportJob["source"]) {
     const state = await this.ensureReady();
     const record: ImportJob = {

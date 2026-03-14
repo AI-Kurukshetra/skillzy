@@ -124,7 +124,9 @@ export function TeacherTemplatesPanel({ dashboard }: { dashboard: DashboardData 
   const router = useRouter();
   const classId = dashboard.classes[0]?.id ?? "";
   const [creatingTemplateId, setCreatingTemplateId] = useState<string | null>(null);
+  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [showTemplateBuilder, setShowTemplateBuilder] = useState(false);
   const [customTemplate, setCustomTemplate] = useState<CreateLessonTemplateInput>(createEmptyTemplate);
   const [isSavingCustomTemplate, setIsSavingCustomTemplate] = useState(false);
   const [jsonTemplate, setJsonTemplate] = useState("");
@@ -209,6 +211,18 @@ export function TeacherTemplatesPanel({ dashboard }: { dashboard: DashboardData 
     }
   }
 
+  async function handleDeleteTemplate(templateId: string) {
+    setDeletingTemplateId(templateId);
+    setMessage("");
+    try {
+      await api.deleteTemplate(templateId);
+      setMessage("Template deleted from the library.");
+      router.refresh();
+    } finally {
+      setDeletingTemplateId(null);
+    }
+  }
+
   async function handleCreateCustomTemplate() {
     const invalidSlide = customTemplate.slides.find((slide) => {
       const question = slide.question;
@@ -247,43 +261,24 @@ export function TeacherTemplatesPanel({ dashboard }: { dashboard: DashboardData 
   return (
     <div className="space-y-5">
       <section className="rounded-[1.8rem] bg-white p-6 shadow-[0_18px_50px_rgba(95,73,166,0.09)]">
-        <p className="text-sm font-medium uppercase tracking-[0.24em] text-[#9288b2]">
-          JSON template builder
-        </p>
-        <h2 className="mt-3 text-2xl font-semibold tracking-tight text-[#1a1630]">
-          Paste JSON and create a template
-        </h2>
-        <p className="mt-3 max-w-2xl text-sm leading-7 text-[#6d6585]">
-          Paste a JSON payload with template title, subject, grade band, and questions. We will map it into the builder so you can review it and save it as a template.
-        </p>
-        <textarea
-          value={jsonTemplate}
-          onChange={(event) => setJsonTemplate(event.target.value)}
-          placeholder='{"templateTitle":"Easy India Quiz","subject":"General Knowledge","gradeBand":"Grades 3-5","templatePurpose":"This template is for a very easy quiz test based on India.","anonymous":true,"timer":true,"timerDuration":45,"questions":[{"slideTitle":"Question 1","questionPrompt":"What is the capital of India?","slideInstructionsOrContext":"Choose the correct answer.","options":["New Delhi","Mumbai","Kolkata","Chennai"],"correctAnswer":"Option 1"}]}'
-          className="mt-4 min-h-56 w-full rounded-[1.3rem] border border-[#ebe4ff] bg-white px-4 py-3 font-mono text-sm text-[#1a1630] outline-none placeholder:text-[#8a82a2]"
-        />
-        <div className="mt-4 flex flex-wrap gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium uppercase tracking-[0.24em] text-[#9288b2]">New template</p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[#1a1630]">
+              Create new template
+            </h2>
+          </div>
           <button
-            onClick={() => setJsonTemplate(sampleJsonTemplate)}
-            className="rounded-full border border-[#ebe4ff] px-5 py-3 text-sm font-semibold text-[#2d2446]"
+            onClick={() => setShowTemplateBuilder((current) => !current)}
+            className="rounded-full bg-[#8b62ff] px-5 py-3 text-sm font-semibold text-white"
           >
-            Use sample JSON
-          </button>
-          <button
-            onClick={handleLoadJsonTemplate}
-            className="rounded-full border border-[#ebe4ff] px-5 py-3 text-sm font-semibold text-[#2d2446]"
-          >
-            Load JSON into builder
-          </button>
-          <button
-            onClick={() => setJsonTemplate("")}
-            className="rounded-full border border-[#ebe4ff] px-5 py-3 text-sm font-semibold text-[#6f6787]"
-          >
-            Clear JSON
+            {showTemplateBuilder ? "Hide builder" : "Create new template"}
           </button>
         </div>
       </section>
 
+      {showTemplateBuilder ? (
+        <>
       <section className="rounded-[1.8rem] bg-white p-6 shadow-[0_18px_50px_rgba(95,73,166,0.09)]">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -629,6 +624,46 @@ export function TeacherTemplatesPanel({ dashboard }: { dashboard: DashboardData 
         </div>
       </section>
 
+      <section className="rounded-[1.8rem] bg-white p-6 shadow-[0_18px_50px_rgba(95,73,166,0.09)]">
+        <p className="text-sm font-medium uppercase tracking-[0.24em] text-[#9288b2]">
+          JSON template builder
+        </p>
+        <h2 className="mt-3 text-2xl font-semibold tracking-tight text-[#1a1630]">
+          Paste JSON and create a template
+        </h2>
+        <p className="mt-3 max-w-2xl text-sm leading-7 text-[#6d6585]">
+          Paste a JSON payload with template title, subject, grade band, and questions. We will map it into the builder so you can review it and save it as a template.
+        </p>
+        <textarea
+          value={jsonTemplate}
+          onChange={(event) => setJsonTemplate(event.target.value)}
+          placeholder='{"templateTitle":"Easy India Quiz","subject":"General Knowledge","gradeBand":"Grades 3-5","templatePurpose":"This template is for a very easy quiz test based on India.","anonymous":true,"timer":true,"timerDuration":45,"questions":[{"slideTitle":"Question 1","questionPrompt":"What is the capital of India?","slideInstructionsOrContext":"Choose the correct answer.","options":["New Delhi","Mumbai","Kolkata","Chennai"],"correctAnswer":"Option 1"}]}'
+          className="mt-4 min-h-56 w-full rounded-[1.3rem] border border-[#ebe4ff] bg-white px-4 py-3 font-mono text-sm text-[#1a1630] outline-none placeholder:text-[#8a82a2]"
+        />
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button
+            onClick={() => setJsonTemplate(sampleJsonTemplate)}
+            className="rounded-full border border-[#ebe4ff] px-5 py-3 text-sm font-semibold text-[#2d2446]"
+          >
+            Use sample JSON
+          </button>
+          <button
+            onClick={handleLoadJsonTemplate}
+            className="rounded-full border border-[#ebe4ff] px-5 py-3 text-sm font-semibold text-[#2d2446]"
+          >
+            Load JSON into builder
+          </button>
+          <button
+            onClick={() => setJsonTemplate("")}
+            className="rounded-full border border-[#ebe4ff] px-5 py-3 text-sm font-semibold text-[#6f6787]"
+          >
+            Clear JSON
+          </button>
+        </div>
+      </section>
+        </>
+      ) : null}
+
       <section className="grid gap-4 md:grid-cols-2">
         {dashboard.templates.map((template) => (
           <article
@@ -651,13 +686,22 @@ export function TeacherTemplatesPanel({ dashboard }: { dashboard: DashboardData 
                 </span>
               ) : null}
             </div>
-            <button
-              onClick={() => handleCreateSessionFromTemplate(template.id)}
-              disabled={creatingTemplateId === template.id || !classId}
-              className="mt-5 rounded-full border border-[#ebe4ff] px-4 py-3 text-sm font-semibold text-[#2d2446] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {creatingTemplateId === template.id ? "Creating..." : "Create session from template"}
-            </button>
+            <div className="mt-5 flex flex-wrap gap-3">
+              <button
+                onClick={() => handleCreateSessionFromTemplate(template.id)}
+                disabled={creatingTemplateId === template.id || deletingTemplateId === template.id || !classId}
+                className="rounded-full border border-[#ebe4ff] px-4 py-3 text-sm font-semibold text-[#2d2446] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {creatingTemplateId === template.id ? "Creating..." : "Create session from template"}
+              </button>
+              <button
+                onClick={() => handleDeleteTemplate(template.id)}
+                disabled={deletingTemplateId === template.id || creatingTemplateId === template.id}
+                className="rounded-full bg-[#d64242] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {deletingTemplateId === template.id ? "Deleting..." : "Delete template"}
+              </button>
+            </div>
           </article>
         ))}
       </section>

@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { GoogleSignInButton } from "../components/google-sign-in-button";
 import { AppShell } from "../components/shell";
@@ -17,6 +18,12 @@ export default async function HomePage({
   const supabase = await createSupabaseServerClient();
   const authResult = supabase ? await supabase.auth.getUser() : null;
   const authUser = authResult?.data.user ?? null;
+  const cookieStore = await cookies();
+  const preferredPortal = cookieStore.get("skillzy_portal")?.value;
+
+  if (authUser && (preferredPortal === "/teacher" || preferredPortal === "/student")) {
+    redirect(preferredPortal);
+  }
 
   return (
     <AppShell className="flex min-h-screen items-center justify-center">

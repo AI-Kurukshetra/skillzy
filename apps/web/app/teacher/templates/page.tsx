@@ -15,9 +15,9 @@ export default async function TeacherTemplatesPage() {
       activeNav="templates"
       dashboard={routeData.dashboard}
       profile={routeData.profile}
-      eyebrow="Template library"
-      title="Turn templates into live-ready sessions"
-      description="Use the starter lesson library as the fastest path to a class-ready session."
+      eyebrow="Templates"
+      title="Template library"
+      description=""
     >
       <TeacherTemplatesPanel dashboard={routeData.dashboard} />
     </TeacherSecondaryPage>

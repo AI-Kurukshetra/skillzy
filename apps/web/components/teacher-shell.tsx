@@ -67,16 +67,14 @@ export function TeacherShell({
         <aside className="flex h-fit max-h-[calc(100vh-2rem)] flex-col rounded-[2rem] bg-white/85 p-5 shadow-[0_18px_50px_rgba(95,73,166,0.09)] lg:sticky lg:top-4">
           <div className="overflow-y-auto pr-1">
             <Link href="/teacher" className="flex items-center gap-3">
-              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-[#f4eeff] via-[#ede4ff] to-[#fff4e4] shadow-inner">
-                <div className="relative h-7 w-7 overflow-hidden rounded-xl">
-                  <Image
-                    src="/branding/skillzy-mascot-mark.svg"
-                    alt="Skillzy"
-                    fill
-                    sizes="28px"
-                    className="object-contain"
-                  />
-                </div>
+              <div className="relative h-12 w-12 overflow-hidden rounded-2xl">
+                <Image
+                  src="/branding/skillzy.png"
+                  alt="Skillzy"
+                  fill
+                  sizes="48px"
+                  className="object-contain"
+                />
               </div>
               <div>
                 <p className="text-[0.7rem] font-semibold uppercase tracking-[0.34em] text-[#8d87a7]">Skillzy</p>
